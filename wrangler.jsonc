@@ -3,6 +3,7 @@
   "name": "mapa-ayuda",
   "main": "src/index.ts",
   "compatibility_date": "2025-09-06",
+  "routes": [{ "pattern": "ayuda.davidgutierrez.ai", "custom_domain": true }],
   "assets": {
     "directory": "public",
     "binding": "ASSETS",
@@ -12,7 +13,7 @@
     {
       "binding": "DB",
       "database_name": "mapa-ayuda",
-      "database_id": "REPLACE_AFTER_wrangler_d1_create",
+      "database_id": "90ce1126-362b-4d38-9f64-9ebcb2cfd9de",
       "migrations_dir": "migrations"
     }
   ],
