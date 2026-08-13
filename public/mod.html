@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Moderación — Mapa de Ayuda</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 0 auto; padding: 1rem; }
+  h1 { font-size: 1.2rem; }
+  .card { border: 1px solid #ddd; border-radius: 8px; padding: .8rem; margin: .6rem 0; }
+  .u1 { border-left: 6px solid #d32f2f; } .u2 { border-left: 6px solid #f9a825; } .u3 { border-left: 6px solid #1976d2; }
+  .meta { color: #555; font-size: .85rem; }
+  button { margin: .4rem .3rem 0 0; padding: .4rem .8rem; border-radius: 6px; border: 1px solid #999; background: #fff; cursor: pointer; }
+  .verify { background: #34a853; color: #fff; border: 0; }
+  .reject { background: #b3261e; color: #fff; border: 0; }
+  input.muni { width: 10rem; }
+</style>
+</head>
+<body>
+<h1>Cola de moderación</h1>
+<p><input id="token" placeholder="Token de moderador" type="password" style="width:16rem" /> <button onclick="save()">Entrar</button></p>
+<div id="list"></div>
+<script>
+const $ = (s) => document.querySelector(s);
+function save() { localStorage.modToken = $("#token").value; load(); }
+async function api(path, opts = {}) {
+  const res = await fetch(path, { ...opts, headers: { "content-type": "application/json", authorization: "Bearer " + (localStorage.modToken ?? ""), ...opts.headers } });
+  if (res.status === 401) { $("#list").innerHTML = "<p>Token inválido.</p>"; throw new Error("401"); }
+  return res.json();
+}
+async function act(id, action, muniInputId) {
+  const muni_code = muniInputId ? $("#" + muniInputId).value.trim() : "";
+  await api("/api/mod/action", { method: "POST", body: JSON.stringify({ id, action, ...(muni_code && { muni_code }) }) });
+  load();
+}
+async function load() {
+  if (!localStorage.modToken) return;
+  const rows = await api("/api/mod/queue");
+  $("#list").innerHTML = rows.length === 0 ? "<p>✔ Cola vacía.</p>" : rows.map(r => `
+    <div class="card u${r.urgency}">
+      <strong>#${r.id} · ${r.need_type} · urgencia ${r.urgency}</strong>
+      <span class="meta"> · ${r.channel}${r.source_org ? " (" + r.source_org + ")" : ""} · ${r.created_at}</span><br>
+      ${r.description ?? ""}<br>
+      <span class="meta">📍 ${r.muni_name ?? "⚠ sin municipio"} ${r.location_raw ? "· dijo: “" + r.location_raw + "”" : ""} ${r.location_detail ? "· detalle: " + r.location_detail : ""}
+      · 👥 ${r.households} hogares · +${r.confirmations} confirmaciones · ☎ ${r.contact ?? "sin contacto"}</span><br>
+      <input class="muni" id="m${r.id}" placeholder="código DANE si falta" value="${r.muni_code ?? ""}" />
+      <button class="verify" onclick="act(${r.id},'verify','m${r.id}')">Verificar</button>
+      <button class="reject" onclick="act(${r.id},'reject')">Rechazar</button>
+      <button onclick="act(${r.id},'resolve')">Resuelta</button>
+    </div>`).join("");
+}
+load();
+setInterval(load, 30_000);
+</script>
+</body>
+</html>

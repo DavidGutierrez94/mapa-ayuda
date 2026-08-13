@@ -1,0 +1,279 @@
+import type { Env, PipelineReply } from "./types";
+import { handleInbound, createRequest, storeRaw } from "./pipeline";
+import { byCode, byName } from "./gazetteer";
+import * as kapso from "./adapters/kapso";
+import * as smsgate from "./adapters/smsgate";
+
+const json = (data: unknown, status = 200, headers: Record<string, string> = {}) =>
+  new Response(JSON.stringify(data), {
+    status,
+    headers: { "content-type": "application/json; charset=utf-8", "access-control-allow-origin": "*", ...headers },
+  });
+
+const bearer = (req: Request) =>
+  req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? null;
+
+const NEED_TYPES = ["agua", "alimentos", "medico", "rescate", "techo", "otro"];
+const PUBLIC_STATUSES = ["verified", "attending", "resolved"];
+
+/** Hand-rolled mirror of schema/help-request.schema.json (v1). Returns error list. */
+export function validateHelpRequest(b: any): string[] {
+  const errs: string[] = [];
+  if (typeof b !== "object" || b === null) return ["body must be a JSON object"];
+  const allowed = ["need_type", "urgency", "description", "location", "households", "contact", "reported_at"];
+  for (const k of Object.keys(b)) if (!allowed.includes(k)) errs.push(`unknown field: ${k}`);
+  if (!NEED_TYPES.includes(b.need_type)) errs.push(`need_type must be one of ${NEED_TYPES.join("|")}`);
+  if (b.urgency !== undefined && ![1, 2, 3].includes(b.urgency)) errs.push("urgency must be 1, 2 or 3");
+  if (typeof b.location !== "object" || b.location === null) errs.push("location is required");
+  else {
+    const loc = b.location;
+    const lAllowed = ["muni_code", "muni_name", "detail", "raw"];
+    for (const k of Object.keys(loc)) if (!lAllowed.includes(k)) errs.push(`unknown location field: ${k}`);
+    if (!loc.muni_code && !loc.muni_name && !loc.raw)
+      errs.push("location needs muni_code, muni_name or raw");
+  }
+  if (b.households !== undefined && (!Number.isInteger(b.households) || b.households < 1))
+    errs.push("households must be a positive integer");
+  return errs;
+}
+
+async function verifyTurnstile(env: Env, token: string | undefined, ip: string | null): Promise<boolean> {
+  if (!env.TURNSTILE_SECRET) return true; // dev/local: not configured → open (set the secret in prod!)
+  if (!token) return false;
+  const res = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ secret: env.TURNSTILE_SECRET, response: token, remoteip: ip ?? undefined }),
+  });
+  return res.ok && ((await res.json()) as any).success === true;
+}
+
+function orgForToken(env: Env, token: string | null): string | null {
+  if (!token || !env.ORG_TOKENS) return null;
+  for (const pair of env.ORG_TOKENS.split(",")) {
+    const [name, t] = pair.split(":").map((s) => s.trim());
+    if (t && t === token) return name;
+  }
+  return null;
+}
+
+const csvCell = (v: unknown) => {
+  const s = v === null || v === undefined ? "" : String(v);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
+
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(request.url);
+    const path = url.pathname;
+
+    // ── Webhooks ──
+    if (request.method === "POST" && path === "/webhook/kapso") {
+      const body = await request.text();
+      if (!(await kapso.verifyKapso(env, body, request.headers.get("X-Webhook-Signature"))))
+        return json({ error: "invalid signature" }, 401);
+      const reports = kapso.parseKapso(JSON.parse(body));
+      ctx.waitUntil(
+        // ponytail: inline processing via waitUntil; move to Cloudflare Queues if volume demands
+        (async () => {
+          for (const r of reports) {
+            const reply: PipelineReply = await handleInbound(env, r);
+            if (reply.kind === "ask_confirm") await kapso.sendConfirmButtons(env, r.sender, reply.text);
+            else if (reply.kind !== "none") await kapso.sendText(env, r.sender, reply.text);
+          }
+        })(),
+      );
+      return json({ ok: true });
+    }
+
+    if (request.method === "POST" && path === "/webhook/smsgate") {
+      const body = await request.text();
+      const ok = await smsgate.verifySmsgate(
+        env,
+        body,
+        request.headers.get("X-Signature"),
+        request.headers.get("X-Timestamp"),
+      );
+      if (!ok) return json({ error: "invalid signature" }, 401);
+      const report = smsgate.parseSmsgate(JSON.parse(body));
+      if (report) {
+        ctx.waitUntil(
+          (async () => {
+            const reply = await handleInbound(env, report);
+            if (reply.kind === "ask_confirm")
+              await smsgate.sendSms(env, report.sender, reply.text + " Responde SI para sumarte, o describe tu solicitud de nuevo.");
+            else if (reply.kind !== "none") await smsgate.sendSms(env, report.sender, reply.text);
+          })(),
+        );
+      }
+      return json({ ok: true });
+    }
+
+    // ── Web form intake ──
+    if (request.method === "POST" && path === "/api/web-intake") {
+      const b = (await request.json().catch(() => null)) as any;
+      if (!b) return json({ error: "invalid JSON" }, 400);
+      if (!(await verifyTurnstile(env, b.turnstile_token, request.headers.get("CF-Connecting-IP"))))
+        return json({ error: "verificación anti-spam fallida" }, 403);
+      if (!NEED_TYPES.includes(b.need_type)) return json({ error: "need_type inválido" }, 422);
+      const muni = byCode(b.muni_code) ?? byName(b.muni_name);
+      const id = await createRequest(env, {
+        need_type: b.need_type,
+        urgency: [1, 2, 3].includes(b.urgency) ? b.urgency : 2,
+        description: b.description ? String(b.description).slice(0, 2000) : null,
+        muni,
+        location_raw: b.muni_name ?? null,
+        location_detail: b.detail ? String(b.detail).slice(0, 500) : null,
+        households: Number.isInteger(b.households) && b.households > 0 ? b.households : 1,
+        contact: b.contact ? String(b.contact).slice(0, 50) : null,
+        channel: "web",
+      });
+      return json({ ok: true, id }, 201);
+    }
+
+    // ── Open intake standard: org push ──
+    if (request.method === "POST" && path === "/api/requests") {
+      const org = orgForToken(env, bearer(request));
+      if (!org) return json({ error: "unauthorized" }, 401);
+      const b = (await request.json().catch(() => null)) as any;
+      if (!b) return json({ error: "invalid JSON" }, 400);
+      const errs = validateHelpRequest(b);
+      if (errs.length) return json({ error: "schema validation failed", details: errs }, 422);
+      const muni = byCode(b.location.muni_code) ?? byName(b.location.muni_name) ?? byName(b.location.raw);
+      // provider id = org + hash of body → idempotent re-pushes
+      const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(b)));
+      const hash = [...new Uint8Array(digest)].slice(0, 12).map((x) => x.toString(16).padStart(2, "0")).join("");
+      const fresh = await storeRaw(env, { channel: "sms", providerId: `${org}:${hash}`, sender: org, text: "" } as any);
+      if (!fresh) return json({ ok: true, duplicate: true }, 200);
+      const id = await createRequest(env, {
+        need_type: b.need_type,
+        urgency: b.urgency ?? 2,
+        description: b.description ?? null,
+        muni,
+        location_raw: b.location.raw ?? b.location.muni_name ?? null,
+        location_detail: b.location.detail ?? null,
+        households: b.households ?? 1,
+        contact: b.contact ?? null,
+        channel: "api",
+        source_org: org,
+      });
+      return json({ ok: true, id }, 201);
+    }
+
+    // ── Public aggregated feed (zero PII) ──
+    if (request.method === "GET" && path === "/api/feed") {
+      const statuses = (url.searchParams.get("status")?.split(",") ?? ["verified", "attending"]).filter((s) =>
+        PUBLIC_STATUSES.includes(s),
+      );
+      const need = url.searchParams.get("need");
+      const rows = (
+        await env.DB.prepare(
+          `SELECT r.muni_code, r.muni_name, r.dept, r.lat, r.lon, r.need_type, r.status,
+                  COUNT(*) AS requests,
+                  SUM(r.households) AS households,
+                  COUNT(*) + IFNULL(SUM(c.cnt), 0) AS reportes,
+                  MAX(r.urgency = 1) AS has_critical
+           FROM requests r
+           LEFT JOIN (SELECT request_id, COUNT(*) cnt FROM confirmations GROUP BY request_id) c
+             ON c.request_id = r.id
+           WHERE r.status IN (${statuses.map(() => "?").join(",") || "''"})
+             ${need ? "AND r.need_type = ?" : ""}
+           GROUP BY r.muni_code, r.need_type, r.status`,
+        )
+          .bind(...statuses, ...(need ? [need] : []))
+          .all()
+      ).results;
+
+      const format = url.searchParams.get("format") ?? "json";
+      if (format === "csv") {
+        const cols = ["muni_code", "muni_name", "dept", "lat", "lon", "need_type", "status", "requests", "households", "reportes"];
+        const csv = [cols.join(","), ...rows.map((r: any) => cols.map((c) => csvCell(r[c])).join(","))].join("\n");
+        return new Response(csv, {
+          headers: {
+            "content-type": "text/csv; charset=utf-8",
+            "content-disposition": "attachment; filename=mapa-ayuda-feed.csv",
+            "access-control-allow-origin": "*",
+          },
+        });
+      }
+      if (format === "geojson") {
+        return json({
+          type: "FeatureCollection",
+          features: rows
+            .filter((r: any) => r.lat != null)
+            .map((r: any) => ({
+              type: "Feature",
+              geometry: { type: "Point", coordinates: [r.lon, r.lat] },
+              properties: { ...r, lat: undefined, lon: undefined },
+            })),
+        });
+      }
+      return json({ generated_at: new Date().toISOString(), rows });
+    }
+
+    // ── Config for static pages ──
+    if (request.method === "GET" && path === "/api/config") {
+      return json({ turnstile_sitekey: env.TURNSTILE_SITEKEY ?? null });
+    }
+
+    // ── Moderation ──
+    if (path.startsWith("/api/mod/")) {
+      if (!env.MOD_TOKEN || bearer(request) !== env.MOD_TOKEN) return json({ error: "unauthorized" }, 401);
+      if (request.method === "GET" && path === "/api/mod/queue") {
+        const rows = await env.DB.prepare(
+          `SELECT r.*, IFNULL(c.cnt,0) AS confirmations FROM requests r
+           LEFT JOIN (SELECT request_id, COUNT(*) cnt FROM confirmations GROUP BY request_id) c ON c.request_id = r.id
+           WHERE r.status = 'pending' ORDER BY r.urgency, r.id DESC LIMIT 200`,
+        ).all();
+        return json(rows.results);
+      }
+      if (request.method === "POST" && path === "/api/mod/action") {
+        const b = (await request.json().catch(() => null)) as any;
+        const actions: Record<string, string> = {
+          verify: "verified",
+          reject: "rejected",
+          attend: "attending",
+          resolve: "resolved",
+        };
+        if (!b?.id) return json({ error: "id required" }, 400);
+        if (b.action === "merge") {
+          if (!b.target_id) return json({ error: "target_id required" }, 400);
+          const merged = await env.DB.prepare("SELECT contact FROM requests WHERE id = ?").bind(b.id).first<any>();
+          await env.DB.prepare("UPDATE requests SET status='rejected', updated_at=datetime('now') WHERE id = ?").bind(b.id).run();
+          await env.DB.prepare("INSERT OR IGNORE INTO confirmations (request_id, phone) VALUES (?,?)")
+            .bind(b.target_id, merged?.contact ?? `merged:${b.id}`)
+            .run();
+          return json({ ok: true });
+        }
+        // Moderator corrections (fix municipality / need type) ride along with any action.
+        const muni = byCode(b.muni_code);
+        if (muni)
+          await env.DB.prepare(
+            "UPDATE requests SET muni_code=?, muni_name=?, dept=?, lat=?, lon=? WHERE id = ?",
+          )
+            .bind(muni.code, muni.name, muni.dept, muni.lat, muni.lon, b.id)
+            .run();
+        if (!actions[b.action]) return json({ error: "unknown action" }, 400);
+        await env.DB.prepare("UPDATE requests SET status=?, updated_at=datetime('now') WHERE id = ?")
+          .bind(actions[b.action], b.id)
+          .run();
+        return json({ ok: true });
+      }
+      return json({ error: "not found" }, 404);
+    }
+
+    // ── Accredited responders: precise data ──
+    if (request.method === "GET" && path === "/api/responder/requests") {
+      if (!env.RESPONDER_TOKEN || bearer(request) !== env.RESPONDER_TOKEN) return json({ error: "unauthorized" }, 401);
+      const rows = await env.DB.prepare(
+        `SELECT r.*, IFNULL(c.cnt,0) AS confirmations FROM requests r
+         LEFT JOIN (SELECT request_id, COUNT(*) cnt FROM confirmations GROUP BY request_id) c ON c.request_id = r.id
+         WHERE r.status IN ('verified','attending') ORDER BY r.urgency, r.id DESC`,
+      ).all();
+      return json(rows.results);
+    }
+
+    // ── Static assets (map, form, moderation UI) ──
+    return env.ASSETS.fetch(request);
+  },
+} satisfies ExportedHandler<Env>;

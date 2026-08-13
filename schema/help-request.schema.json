@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mapa-ayuda.org/schema/help-request/v1",
+  "title": "HelpRequest",
+  "description": "Open intake standard v1 — push a help request into Mapa de Ayuda via POST /api/requests (Bearer token). Any org or bridge can integrate against this schema.",
+  "type": "object",
+  "required": ["need_type", "location"],
+  "additionalProperties": false,
+  "properties": {
+    "need_type": {
+      "enum": ["agua", "alimentos", "medico", "rescate", "techo", "otro"]
+    },
+    "urgency": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 3,
+      "description": "1 = vida en riesgo, 2 = urgente, 3 = necesidad sostenida"
+    },
+    "description": { "type": "string", "maxLength": 2000 },
+    "location": {
+      "type": "object",
+      "additionalProperties": false,
+      "anyOf": [
+        { "required": ["muni_code"] },
+        { "required": ["muni_name"] },
+        { "required": ["raw"] }
+      ],
+      "properties": {
+        "muni_code": { "type": "string", "description": "DANE municipality code" },
+        "muni_name": { "type": "string" },
+        "detail": { "type": "string", "description": "Precise address/vereda — shown only to accredited responders" },
+        "raw": { "type": "string", "description": "Free-text location as reported" }
+      }
+    },
+    "households": { "type": "integer", "minimum": 1 },
+    "contact": { "type": "string", "description": "Reporter phone — shown only to accredited responders" },
+    "reported_at": { "type": "string", "format": "date-time" }
+  }
+}
