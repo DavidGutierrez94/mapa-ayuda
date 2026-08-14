@@ -49,17 +49,32 @@
 <div class="row" style="margin-top:.5rem">
   <input class="input input-inline" id="l_actor" placeholder="Filtrar por actor" style="width:12rem" />
   <input class="input input-inline" id="l_req" placeholder="# caso" style="width:7rem" />
-  <button class="btn" style="margin:0" onclick="loadLog()">Filtrar</button>
+  <button class="btn" style="margin:0" onclick="window.ob && ob.done('bitacora'); loadLog()">Filtrar</button>
 </div>
 <div id="log"></div>
 
+<script src="/onboarding.js"></script>
 <script>
 const $ = (s) => document.querySelector(s);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+window.ob = onboard({
+  key: "admin",
+  title: "Bienvenida al panel de administración",
+  intro: "Desde aquí controla quién accede a la plataforma y qué hace cada quien. Cuatro pasos; se marcan solos cuando los hace:",
+  steps: [
+    { id: "token", text: "Entre con el token de administrador.", target: "#token" },
+    { id: "usuario", text: "Cree su primer usuario (moderador u organización) y entregue el token: se muestra una sola vez.", target: "#u_name" },
+    { id: "lider", text: "Registre un líder comunitario y compártale su enlace personal.", target: "#ld_name" },
+    { id: "bitacora", text: "Use los filtros de la bitácora: toda acción de todo usuario queda registrada aquí.", target: "#l_actor" },
+  ],
+});
+
 function save() { localStorage.adminToken = $("#token").value; loadAll(); }
 async function api(path, opts = {}) {
   const res = await fetch(path, { ...opts, headers: { "content-type": "application/json", authorization: "Bearer " + (localStorage.adminToken ?? ""), ...opts.headers } });
   if (res.status === 401 || res.status === 403) { $("#users").innerHTML = "<p>Token inválido o sin permisos de administrador.</p>"; throw new Error("auth"); }
+  ob.done("token");
   return res.json();
 }
 async function createUser() {
@@ -68,6 +83,7 @@ async function createUser() {
   const r = await api("/api/admin/users", { method: "POST", body: JSON.stringify({ name, role: $("#u_role").value }) });
   $("#u_name").value = "";
   $("#newtoken").innerHTML = `<div class="token-box"><strong>Token de ${esc(name)}</strong> (cópielo ahora, no se volverá a mostrar):<br>${esc(r.token)}</div>`;
+  ob.done("usuario");
   loadUsers();
 }
 async function revoke(id, name) {
@@ -106,6 +122,7 @@ async function createLeader() {
   $("#ld_name").value = ""; $("#ld_cedula").value = ""; $("#ld_phone").value = ""; $("#ld_muni").value = "";
   const link = location.origin + "/ayuda?lider=" + r.link_token;
   $("#newlink").innerHTML = `<div class="token-box"><strong>Enlace de ${esc(name)}</strong> (compártalo solo con esta persona):<br><a href="${esc(link)}">${esc(link)}</a></div>`;
+  ob.done("lider");
   loadLeaders();
 }
 async function revokeLeader(id, name) {
@@ -115,7 +132,7 @@ async function revokeLeader(id, name) {
 }
 async function loadLeaders() {
   const rows = await api("/api/admin/leaders");
-  $("#leaders").innerHTML = rows.length === 0 ? "<p class='meta'>Sin líderes registrados.</p>" : `
+  $("#leaders").innerHTML = rows.length === 0 ? "<p class='meta'>Sin líderes registrados. Registre el primero con el formulario de arriba: recibirá un enlace personal para compartirle y sus reportes llegarán marcados como verificados por identidad.</p>" : `
     <table><tr><th>#</th><th>Nombre</th><th>Cédula</th><th>Teléfono</th><th>Municipio</th><th>Enlace</th><th></th></tr>
     ${rows.map((l) => `<tr class="${l.active ? "" : "off"}">
       <td>${l.id}</td><td>${esc(l.name)}</td><td>CC …${esc(l.cedula_last3)}</td><td>${esc(l.phone)}</td><td>${esc(l.muni_code)}</td>

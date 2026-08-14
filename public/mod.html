@@ -41,9 +41,9 @@
 <h1>Cola de moderación</h1>
 <p style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap"><input class="input input-inline" id="token" placeholder="Token de moderador" type="password" style="width:16rem" /> <button class="btn btn-primary" style="margin:0" onclick="save()">Entrar</button>
 <button class="btn" style="margin:0" onclick="toggleCreate()">+ Nueva solicitud</button>
-<a class="btn" style="margin:0" href="/informes">📊 Informes</a></p>
+<a class="btn" style="margin:0" href="/informes" onclick="window.ob && ob.done('informes')">📊 Informes</a></p>
 
-<details class="guide">
+<details class="guide" ontoggle="this.open && window.ob && ob.done('guia')">
   <summary>Cómo validar una solicitud (guía para moderadores)</summary>
   <ol>
     <li><strong>Tome el caso más urgente primero.</strong> La pestaña Pendientes ordena por urgencia: rojo (vida en riesgo) antes que ámbar y azul.</li>
@@ -108,9 +108,23 @@
 <div id="list"></div>
 
 <datalist id="munis"></datalist>
+<script src="/onboarding.js"></script>
 <script>
 const $ = (s) => document.querySelector(s);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+window.ob = onboard({
+  key: "mod",
+  title: "Bienvenida al panel de moderación",
+  intro: "Usted es la puerta entre los reportes que llegan y el mapa público: nada se publica sin su verificación. Cinco pasos para empezar; se marcan solos cuando los hace (toque un paso para ver dónde):",
+  steps: [
+    { id: "token", text: "Entre con el token que le entregó el administrador.", target: "#token" },
+    { id: "guia", text: "Abra la guía de validación y lea el ejemplo.", target: ".guide" },
+    { id: "verificar", text: "Verifique o rechace su primer caso en Pendientes.", target: "#list" },
+    { id: "tablero", text: "Pruebe la vista de tablero: arrastre una tarjeta entre columnas.", target: "#viewToggle" },
+    { id: "informes", text: "Abra 📊 Informes para ver las métricas de la operación.", target: "a[href='/informes']" },
+  ],
+});
 
 // Searchable municipality picker: type a name, we resolve it to its DANE code.
 let MUNIS = [];
@@ -135,11 +149,13 @@ function toggleCreate() { $("#create").hidden = !$("#create").hidden; }
 async function api(path, opts = {}) {
   const res = await fetch(path, { ...opts, headers: { "content-type": "application/json", authorization: "Bearer " + (localStorage.modToken ?? ""), ...opts.headers } });
   if (res.status === 401) { $("#list").innerHTML = "<p>Token inválido.</p>"; throw new Error("401"); }
+  ob.done("token");
   return res.json();
 }
 async function act(id, action, extra = {}) {
   if (action === "delete" && !confirm(`¿Eliminar definitivamente el caso #${id}? Esta acción no se puede deshacer.`)) return;
   await api("/api/mod/action", { method: "POST", body: JSON.stringify({ id, action, ...extra }) });
+  if (action === "verify" || action === "reject") ob.done("verificar");
   load();
 }
 function verifyWithMuni(id) {
@@ -242,7 +258,7 @@ function renderTabs() {
 // ── Kanban board ──
 let view = localStorage.modView ?? "list";
 let dragging = false;
-function toggleView() { view = view === "list" ? "board" : "list"; localStorage.modView = view; load(); }
+function toggleView() { view = view === "list" ? "board" : "list"; if (view === "board") ob.done("tablero"); localStorage.modView = view; load(); }
 const DROP_ACTION = { verified: "verify", rejected: "reject", attending: "attend", resolved: "resolve" };
 const UCOLOR = { 1: "var(--destructive)", 2: "var(--warning)", 3: "var(--info)" };
 const kcard = (r) => `
@@ -275,6 +291,7 @@ async function loadBoard() {
          ondragleave="this.classList.remove('over')"
          ondrop="dropCard(event,'${s}')">
       <h2>${label} <span class="count">(${lists[i].length})</span></h2>
+      ${lists[i].length === 0 && DROP_ACTION[s] ? `<p class="meta" style="margin:.4rem .25rem">Arrastre una tarjeta aquí</p>` : ""}
       ${lists[i].map(kcard).join("")}
     </div>`).join("") + `</div>`;
 }
@@ -286,7 +303,11 @@ async function load() {
   if (view === "board") { $("#tabs").innerHTML = ""; return loadBoard(); }
   renderTabs();
   const rows = await api("/api/mod/requests?" + filterParams(status));
-  $("#list").innerHTML = rows.length === 0 ? "<p class='meta'>Sin casos en esta vista.</p>" : rows.map(card).join("");
+  const EMPTY = {
+    pending: "No hay casos pendientes por revisar. Los reportes de WhatsApp, SMS y el formulario web llegan aquí solos (la lista se actualiza cada 30 segundos). ¿Recibió una solicitud por llamada o radio? Regístrela con «+ Nueva solicitud».",
+    verified: "Aún no hay casos verificados. Cuando verifique un caso en Pendientes aparecerá aquí y en el mapa público.",
+  };
+  $("#list").innerHTML = rows.length === 0 ? `<p class='meta'>${EMPTY[status] ?? "Sin casos en esta vista."}</p>` : rows.map(card).join("");
 }
 $("#q").oninput = () => { clearTimeout(window._t); window._t = setTimeout(load, 300); };
 $("#f_need").onchange = load;

@@ -43,8 +43,13 @@
   <div class="legend" id="legend"></div>
   <a class="cta btn btn-destructive" href="/ayuda">Pedir ayuda</a>
 </div>
+<div id="hint" hidden style="padding:.5rem 1rem;background:var(--muted);border-bottom:1px solid var(--border);font-size:.8125rem;display:flex;gap:.75rem;align-items:center;flex-wrap:wrap">
+  <span>Cada círculo es un municipio con necesidades <strong>verificadas por personas</strong>; el número indica cuántos reportes hay. Toque un círculo para ver el detalle. ¿Usted o su comunidad necesitan algo? Use el botón rojo <strong>Pedir ayuda</strong>.</span>
+  <button class="btn" style="margin-left:auto;padding:.25rem .7rem" onclick="localStorage.ob_mapa='done';this.parentElement.remove()">Entendido</button>
+</div>
 <div id="map"></div>
 <script>
+if (localStorage.ob_mapa !== "done") document.getElementById("hint").hidden = false;
 const COLORS = { agua:"#1976d2", alimentos:"#f9a825", medico:"#d32f2f", rescate:"#7b1fa2", techo:"#5d4037", higiene:"#00838f", infancia:"#c2185b", otro:"#616161" };
 const LABELS = { agua:"Agua", alimentos:"Alimentos", medico:"Médica", rescate:"Rescate", techo:"Techo", higiene:"Higiene", infancia:"Niños", otro:"Otras" };
 document.getElementById("legend").innerHTML = Object.entries(LABELS)
