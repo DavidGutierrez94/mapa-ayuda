@@ -58,6 +58,16 @@ function orgForToken(env: Env, token: string | null): string | null {
   return null;
 }
 
+const VULNERABLE_KEYS = ["ninos", "mayores", "embarazadas", "discapacidad"];
+
+const normName = (s: string) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+
+/** IP-geolocated city vs claimed municipality: 1 match, 0 mismatch, null unknown. A signal for moderators, never a rejection rule. */
+export function ipMatch(ipCity: string | null | undefined, muniName: string | null | undefined): number | null {
+  if (!ipCity || !muniName) return null;
+  return normName(ipCity) === normName(muniName) ? 1 : 0;
+}
+
 const csvCell = (v: unknown) => {
   const s = v === null || v === undefined ? "" : String(v);
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
@@ -135,6 +145,23 @@ export default {
       ] as string[];
       if (!needs.length) return json({ error: "need_type inválido" }, 422);
       const muni = byCode(b.muni_code) ?? byName(b.muni_name);
+      // v2 detail fields (all optional) + verification signals
+      const okCoord = (v: unknown, max: number) => typeof v === "number" && Number.isFinite(v) && Math.abs(v) <= max;
+      const hasGps = okCoord(b.precise_lat, 90) && okCoord(b.precise_lon, 180);
+      const vulnerable = Array.isArray(b.vulnerable)
+        ? b.vulnerable.filter((v: unknown) => VULNERABLE_KEYS.includes(v as string))
+        : [];
+      const ipCity = (request as any).cf?.city ?? null;
+      const v2 = {
+        reporter_name: b.reporter_name ? String(b.reporter_name).slice(0, 100) : null,
+        people_count: Number.isInteger(b.people_count) && b.people_count > 0 ? b.people_count : null,
+        vulnerable: vulnerable.length ? JSON.stringify(vulnerable) : null,
+        access_note: b.access_note ? String(b.access_note).slice(0, 300) : null,
+        precise_lat: hasGps ? b.precise_lat : null,
+        precise_lon: hasGps ? b.precise_lon : null,
+        ip_city: ipCity,
+        ip_match: ipMatch(ipCity, muni?.name),
+      };
       const ids: number[] = [];
       for (const need_type of needs)
         ids.push(
@@ -149,6 +176,7 @@ export default {
             contact: b.contact ? String(b.contact).slice(0, 50) : null,
             channel: "web",
             leader_id: leaderId,
+            ...v2,
           }),
         );
       return json({ ok: true, id: ids[0], ids }, 201);

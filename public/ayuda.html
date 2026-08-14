@@ -8,16 +8,19 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
 <link href="/coss.css" rel="stylesheet" />
-</head>
-<body class="page-narrow">
-<h1>Pedir ayuda <span class="badge badge-destructive">Terremoto Chocó 2026</span></h1>
-<p>También puedes escribirnos por <strong>WhatsApp o SMS</strong>, los números están en la página principal. Puedes marcar varias necesidades: registraremos una solicitud por cada una.</p>
 <style>
   .checks { display: grid; grid-template-columns: 1fr 1fr; gap: .4rem; margin-top: .375rem; }
   .check { display: flex; align-items: center; gap: .5rem; border: 1px solid var(--input); border-radius: calc(var(--radius) - 2px); padding: .5rem .6rem; font-weight: 400; font-size: .9rem; cursor: pointer; box-shadow: var(--shadow-xs); }
   .check:has(:checked) { border-color: var(--ring); background: var(--muted); }
   .check input { accent-color: var(--primary); margin: 0; }
+  .section { display: flex; align-items: center; gap: .5rem; margin: 1.5rem 0 .25rem; font-size: .9375rem; }
+  .section .n { display: inline-flex; align-items: center; justify-content: center; width: 1.4rem; height: 1.4rem; border-radius: 999px; background: var(--primary); color: var(--primary-foreground); font-size: .75rem; font-weight: 600; }
+  .gps-ok { color: #15803d; font-size: .8125rem; margin-top: .35rem; }
 </style>
+</head>
+<body class="page-narrow">
+<h1>Pedir ayuda <span class="badge badge-destructive">Terremoto Chocó 2026</span></h1>
+<p>También puedes escribirnos por <strong>WhatsApp o SMS</strong>, los números están en la página principal. Puedes marcar varias necesidades: registraremos una solicitud por cada una.</p>
 <div id="leaderBox" hidden style="border:1px solid #bbf7d0;background:#f0fdf4;border-radius:var(--radius);padding:.75rem 1rem;margin-bottom:.75rem">
   <strong>✓ Enlace de líder comunitario</strong>
   <p class="hint" id="leaderName" style="margin-top:.25rem"></p>
@@ -27,7 +30,8 @@
   </label>
 </div>
 <form id="f">
-  <span class="label">¿Qué se necesita? <span class="hint" style="display:inline">(marca todas las que apliquen)</span></span>
+  <h2 class="section"><span class="n">1</span> ¿Qué se necesita?</h2>
+  <span class="hint">Marca todas las que apliquen.</span>
   <div class="checks">
     <label class="check"><input type="checkbox" name="need_types" value="agua" /> Agua</label>
     <label class="check"><input type="checkbox" name="need_types" value="alimentos" /> Alimentos</label>
@@ -43,6 +47,11 @@
       <option value="3">Necesidad sostenida (días)</option>
     </select>
   </label>
+  <label class="label">Describe la situación
+    <textarea class="input" name="description" rows="3" maxlength="2000" placeholder="Qué pasó, qué se necesita y cualquier detalle útil"></textarea>
+  </label>
+
+  <h2 class="section"><span class="n">2</span> ¿Dónde?</h2>
   <label class="label">Municipio
     <input class="input" name="muni_name" list="munis" required placeholder="Escribe para buscar tu municipio" />
     <datalist id="munis"></datalist>
@@ -51,11 +60,31 @@
     <input class="input" name="detail" placeholder="Solo lo ven los organismos de ayuda" />
     <p class="hint">Este dato NO aparece en el mapa público.</p>
   </label>
+  <button type="button" class="btn" id="gpsBtn" onclick="getGps()" style="margin-top:.6rem">📍 Usar mi ubicación GPS</button>
+  <div id="gpsStatus"></div>
+  <p class="hint">Opcional. La ubicación exacta solo la ven los organismos de ayuda, nunca el público.</p>
+
+  <h2 class="section"><span class="n">3</span> ¿Quiénes necesitan la ayuda?</h2>
   <label class="label">¿Cuántas familias afectadas?
     <input class="input" name="households" type="number" min="1" value="1" />
   </label>
-  <label class="label">Describe la situación
-    <textarea class="input" name="description" rows="3" maxlength="2000"></textarea>
+  <label class="label">¿Aproximadamente cuántas personas en total? <span class="hint" style="display:inline">(opcional)</span>
+    <input class="input" name="people_count" type="number" min="1" placeholder="Ej: 45" />
+  </label>
+  <span class="label">¿Hay personas en estos grupos? <span class="hint" style="display:inline">(opcional)</span></span>
+  <div class="checks">
+    <label class="check"><input type="checkbox" name="vulnerable" value="ninos" /> Niños y niñas</label>
+    <label class="check"><input type="checkbox" name="vulnerable" value="mayores" /> Adultos mayores</label>
+    <label class="check"><input type="checkbox" name="vulnerable" value="embarazadas" /> Embarazadas</label>
+    <label class="check"><input type="checkbox" name="vulnerable" value="discapacidad" /> Con discapacidad</label>
+  </div>
+  <label class="label">¿Cómo se llega? Estado de la vía <span class="hint" style="display:inline">(opcional)</span>
+    <input class="input" name="access_note" maxlength="300" placeholder="Ej: vía bloqueada por derrumbe, solo en lancha" />
+  </label>
+
+  <h2 class="section"><span class="n">4</span> Contacto</h2>
+  <label class="label">Tu nombre <span class="hint" style="display:inline">(opcional)</span>
+    <input class="input" name="reporter_name" placeholder="Para que sepan a quién buscar" />
   </label>
   <label class="label">Teléfono de contacto
     <input class="input" name="contact" type="tel" placeholder="Para que los organismos te contacten" />
@@ -79,6 +108,21 @@ if (leaderToken) {
 fetch("/api/municipios").then(r => r.json()).then(list => {
   document.getElementById("munis").innerHTML = list.map(m => `<option value="${m.name} (${m.dept})"></option>`).join("");
 });
+let gps = null;
+function getGps() {
+  const st = document.getElementById("gpsStatus");
+  if (!navigator.geolocation) { st.textContent = "Tu navegador no permite obtener la ubicación."; return; }
+  st.textContent = "Obteniendo ubicación…";
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      gps = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+      st.innerHTML = `<span class="gps-ok">✓ Ubicación capturada (precisión ±${Math.round(pos.coords.accuracy)} m)</span>`;
+      document.getElementById("gpsBtn").disabled = true;
+    },
+    () => { st.textContent = "No se pudo obtener la ubicación. Puedes enviar sin ella."; },
+    { enableHighAccuracy: true, timeout: 10000 },
+  );
+}
 let sitekey = null;
 fetch("/api/config").then(r => r.json()).then(c => {
   sitekey = c.turnstile_sitekey;
@@ -94,7 +138,10 @@ document.getElementById("f").onsubmit = async (e) => {
     document.getElementById("err").textContent = "Marca al menos una necesidad.";
     return;
   }
+  body.vulnerable = [...e.target.querySelectorAll('input[name="vulnerable"]:checked')].map((i) => i.value);
   body.urgency = +body.urgency; body.households = +body.households;
+  body.people_count = body.people_count ? +body.people_count : undefined;
+  if (gps) { body.precise_lat = gps.lat; body.precise_lon = gps.lon; }
   if (leaderToken && !document.getElementById("leaderBox").hidden) {
     body.leader_token = leaderToken;
     body.cedula = document.getElementById("cedula").value.trim();

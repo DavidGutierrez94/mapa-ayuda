@@ -328,3 +328,13 @@ describe("LLM failure resilience", () => {
     expect(queue[0].need_type).toBe("otro");
   });
 });
+
+describe("ipMatch signal", () => {
+  it("accent-insensitive match, mismatch, unknown", async () => {
+    const { ipMatch } = await import("../src/index");
+    expect(ipMatch("Quibdo", "Quibdó")).toBe(1);
+    expect(ipMatch("Bogotá", "Quibdó")).toBe(0);
+    expect(ipMatch(null, "Quibdó")).toBeNull();
+    expect(ipMatch("Quibdó", null)).toBeNull();
+  });
+});

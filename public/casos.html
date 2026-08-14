@@ -32,6 +32,18 @@ async function act(id, action) {
   await api("/api/responder/action", { method: "POST", body: JSON.stringify({ id, action }) });
   load();
 }
+const VULN = { ninos: "niños", mayores: "adultos mayores", embarazadas: "embarazadas", discapacidad: "discapacidad" };
+const v2meta = (r) => {
+  const parts = [];
+  if (r.reporter_name) parts.push("Reporta: " + esc(r.reporter_name));
+  if (r.people_count) parts.push("~" + r.people_count + " personas");
+  try { const v = JSON.parse(r.vulnerable ?? "null"); if (v?.length) parts.push("⚠ " + v.map((k) => VULN[k] ?? k).join(", ")); } catch {}
+  if (r.access_note) parts.push("acceso: " + esc(r.access_note));
+  if (r.precise_lat != null) parts.push(`<a href="https://www.openstreetmap.org/?mlat=${r.precise_lat}&mlon=${r.precise_lon}#map=16/${r.precise_lat}/${r.precise_lon}" target="_blank">📍 GPS exacto</a>`);
+  if (r.ip_match === 1) parts.push(`<span style="color:#15803d">señal IP ✓ coincide con municipio</span>`);
+  else if (r.ip_match === 0) parts.push(`<span style="color:#b45309">señal IP ✗ (${esc(r.ip_city)})</span>`);
+  return parts.length ? `<span class="meta">${parts.join(" · ")}</span><br>` : "";
+};
 const card = (r) => `
   <div class="card u${r.urgency}">
     <strong>#${r.id} · ${esc(r.need_type)} · urgencia ${r.urgency}</strong>
@@ -40,6 +52,7 @@ const card = (r) => `
     ${esc(r.description)}<br>
     <span class="meta">📍 ${esc(r.muni_name) || "sin municipio"}${r.location_detail ? " · " + esc(r.location_detail) : ""}${r.location_raw ? " · dijo: “" + esc(r.location_raw) + "”" : ""}
     · 👥 ${r.households} hogares · +${r.confirmations} confirmaciones</span><br>
+    ${v2meta(r)}
     ${r.contact ? `☎ <a class="contact" href="tel:${esc(r.contact)}">${esc(r.contact)}</a><a class="contact" href="https://wa.me/${String(r.contact).replace(/\D/g, "")}" target="_blank">WhatsApp</a>` : `<span class="meta">sin contacto</span>`}
     ${r.status === "verified"
       ? `<button class="btn btn-warning" onclick="act(${r.id},'attend')">Tomar el caso</button>`

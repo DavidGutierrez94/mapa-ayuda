@@ -24,14 +24,23 @@ export interface NewRequest {
   channel: string;
   source_org?: string | null;
   leader_id?: number | null;
+  reporter_name?: string | null;
+  people_count?: number | null;
+  vulnerable?: string | null; // JSON array of group keys
+  access_note?: string | null;
+  precise_lat?: number | null; // PRIVATE: exact GPS from the reporter's device
+  precise_lon?: number | null;
+  ip_city?: string | null; // PRIVATE: Cloudflare-geolocated city, moderation signal only
+  ip_match?: number | null; // 1 = IP city matches claimed muni, 0 = mismatch, null = unknown
 }
 
 export async function createRequest(env: Env, r: NewRequest): Promise<number> {
   const res = await env.DB.prepare(
     `INSERT INTO requests
      (need_type, urgency, description, muni_code, muni_name, dept, lat, lon,
-      location_raw, location_detail, households, contact, channel, source_org, leader_id)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      location_raw, location_detail, households, contact, channel, source_org, leader_id,
+      reporter_name, people_count, vulnerable, access_note, precise_lat, precise_lon, ip_city, ip_match)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   )
     .bind(
       r.need_type,
@@ -49,6 +58,14 @@ export async function createRequest(env: Env, r: NewRequest): Promise<number> {
       r.channel,
       r.source_org ?? null,
       r.leader_id ?? null,
+      r.reporter_name ?? null,
+      r.people_count ?? null,
+      r.vulnerable ?? null,
+      r.access_note ?? null,
+      r.precise_lat ?? null,
+      r.precise_lon ?? null,
+      r.ip_city ?? null,
+      r.ip_match ?? null,
     )
     .run();
   return res.meta.last_row_id as number;

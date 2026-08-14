@@ -132,3 +132,41 @@ describe("social leaders (PRD v2 P2)", () => {
     expect(row.cedula_hash).toHaveLength(64);
   });
 });
+
+describe("form v2 + geolocation (PRD v2 P3)", () => {
+  it("v2 fields are stored, visible to mods/responders, and absent from public endpoints", async () => {
+    const res = await webIntake({
+      need_types: ["rescate"], muni_name: "Quibdó", households: 4, contact: "573001112233",
+      reporter_name: "Carlos Mosquera", people_count: 18,
+      vulnerable: ["ninos", "embarazadas", "hackers"], // unknown key must be filtered
+      access_note: "vía bloqueada, solo en lancha",
+      precise_lat: 5.12345, precise_lon: -76.54321, // distinct from the public muni centroid
+    });
+    expect(res.status).toBe(201);
+
+    const [req] = (await (await call("/api/mod/requests?status=pending", "test-mod-token")).json()) as any[];
+    expect(req).toMatchObject({
+      reporter_name: "Carlos Mosquera", people_count: 18,
+      access_note: "vía bloqueada, solo en lancha",
+      precise_lat: 5.12345, precise_lon: -76.54321,
+    });
+    expect(JSON.parse(req.vulnerable)).toEqual(["ninos", "embarazadas"]);
+
+    await call("/api/mod/action", "test-mod-token", { id: req.id, action: "verify" });
+    const feedJson = await (await SELF.fetch("https://x/api/feed?status=verified")).text();
+    const feedCsv = await (await SELF.fetch("https://x/api/feed?status=verified&format=csv")).text();
+    for (const leak of ["Carlos", "5.12345", "-76.54321", "lancha"]) {
+      expect(feedJson).not.toContain(leak);
+      expect(feedCsv).not.toContain(leak);
+    }
+    const resp = (await (await call("/api/responder/requests", "test-responder-token")).json()) as any[];
+    expect(resp[0].precise_lat).toBe(5.12345);
+  });
+
+  it("garbage coordinates are dropped, not stored", async () => {
+    await webIntake({ need_types: ["agua"], muni_name: "Quibdó", precise_lat: 999, precise_lon: -76.6 });
+    const [req] = (await (await call("/api/mod/requests?status=pending", "test-mod-token")).json()) as any[];
+    expect(req.precise_lat).toBeNull();
+    expect(req.precise_lon).toBeNull();
+  });
+});
