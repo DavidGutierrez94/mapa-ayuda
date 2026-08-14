@@ -6,28 +6,27 @@
 <title>Mapa de Ayuda — Terremoto Colombia 2026</title>
 <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link href="/coss.css" rel="stylesheet" />
 <style>
-  * { box-sizing: border-box; margin: 0; }
-  body { font-family: system-ui, sans-serif; height: 100vh; display: flex; flex-direction: column; }
-  header { background: #b3261e; color: #fff; padding: .6rem 1rem; display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center; }
-  header h1 { font-size: 1.05rem; }
-  header a { color: #ffd8d4; font-size: .85rem; }
-  #controls { padding: .5rem 1rem; display: flex; gap: .75rem; flex-wrap: wrap; align-items: center; background: #fff; border-bottom: 1px solid #ddd; font-size: .9rem; }
+  body { height: 100vh; display: flex; flex-direction: column; }
+  #controls { padding: .5rem 1rem; display: flex; gap: .75rem; flex-wrap: wrap; align-items: center; background: var(--background); border-bottom: 1px solid var(--border); font-size: .875rem; }
   #map { flex: 1; }
-  select, label { font-size: .9rem; }
-  .legend { display: flex; gap: .6rem; flex-wrap: wrap; }
+  .legend { display: flex; gap: .6rem; flex-wrap: wrap; font-size: .8125rem; color: var(--muted-foreground); }
   .legend span::before { content: "●"; margin-right: .2rem; }
-  .cta { margin-left: auto; background: #b3261e; color: #fff; padding: .35rem .7rem; border-radius: 6px; text-decoration: none; font-weight: 600; }
+  .cta { margin-left: auto; }
+  .maplibregl-popup-content { font-family: var(--font-sans); border-radius: var(--radius); box-shadow: var(--shadow-xs); border: 1px solid var(--border); }
 </style>
 </head>
 <body>
-<header>
-  <h1>Mapa de Ayuda · Terremoto Chocó 2026</h1>
-  <a href="/api/feed?format=csv">Descargar datos (CSV)</a>
+<header class="topbar">
+  <h1>Mapa de Ayuda <span class="badge badge-destructive">Terremoto Chocó 2026</span></h1>
+  <a class="muted" style="font-size:.8125rem" href="/api/feed?format=csv">Descargar datos (CSV)</a>
 </header>
 <div id="controls">
   <label>Necesidad:
-    <select id="need">
+    <select class="input input-inline" id="need">
       <option value="">Todas</option>
       <option value="agua">Agua</option>
       <option value="alimentos">Alimentos</option>
@@ -39,7 +38,7 @@
   </label>
   <label><input type="checkbox" id="resolved" /> incluir resueltas</label>
   <div class="legend" id="legend"></div>
-  <a class="cta" href="/ayuda.html">Pedir ayuda</a>
+  <a class="cta btn btn-destructive" href="/ayuda.html">Pedir ayuda</a>
 </div>
 <div id="map"></div>
 <script>

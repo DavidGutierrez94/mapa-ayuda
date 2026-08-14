@@ -5,24 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Pedir ayuda — Mapa de Ayuda</title>
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
-<style>
-  * { box-sizing: border-box; }
-  body { font-family: system-ui, sans-serif; max-width: 480px; margin: 0 auto; padding: 1rem; color: #222; }
-  h1 { font-size: 1.2rem; color: #b3261e; }
-  label { display: block; margin-top: .9rem; font-weight: 600; font-size: .95rem; }
-  input, select, textarea { width: 100%; padding: .55rem; margin-top: .25rem; border: 1px solid #bbb; border-radius: 6px; font-size: 1rem; }
-  button { margin-top: 1.2rem; width: 100%; padding: .8rem; background: #b3261e; color: #fff; border: 0; border-radius: 8px; font-size: 1.05rem; font-weight: 700; }
-  .ok { background: #e6f4ea; border: 1px solid #34a853; padding: 1rem; border-radius: 8px; margin-top: 1rem; }
-  .err { color: #b3261e; margin-top: .5rem; }
-  p.hint { font-size: .85rem; color: #555; margin-top: .25rem; }
-</style>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link href="/coss.css" rel="stylesheet" />
 </head>
-<body>
-<h1>Pedir ayuda · Terremoto Chocó 2026</h1>
-<p>También puedes escribirnos por <strong>WhatsApp o SMS</strong> — los números están en la página principal. Si reportas por tu comunidad, envía una solicitud por cada necesidad.</p>
+<body class="page-narrow">
+<h1>Pedir ayuda <span class="badge badge-destructive">Terremoto Chocó 2026</span></h1>
+<p>También puedes escribirnos por <strong>WhatsApp o SMS</strong>, los números están en la página principal. Si reportas por tu comunidad, envía una solicitud por cada necesidad.</p>
 <form id="f">
-  <label>¿Qué se necesita?
-    <select name="need_type" required>
+  <label class="label">¿Qué se necesita?
+    <select class="input" name="need_type" required>
       <option value="agua">Agua</option>
       <option value="alimentos">Alimentos</option>
       <option value="medico">Atención médica</option>
@@ -31,35 +23,35 @@
       <option value="otro">Otra</option>
     </select>
   </label>
-  <label>¿Qué tan urgente?
-    <select name="urgency">
+  <label class="label">¿Qué tan urgente?
+    <select class="input" name="urgency">
       <option value="1">Vida en riesgo ahora</option>
       <option value="2" selected>Urgente (horas)</option>
       <option value="3">Necesidad sostenida (días)</option>
     </select>
   </label>
-  <label>Municipio
-    <input name="muni_name" required placeholder="Ej: Quibdó, San José del Palmar" />
+  <label class="label">Municipio
+    <input class="input" name="muni_name" required placeholder="Ej: Quibdó, San José del Palmar" />
   </label>
-  <label>Vereda / barrio / dirección
-    <input name="detail" placeholder="Solo lo ven los organismos de ayuda" />
+  <label class="label">Vereda / barrio / dirección
+    <input class="input" name="detail" placeholder="Solo lo ven los organismos de ayuda" />
     <p class="hint">Este dato NO aparece en el mapa público.</p>
   </label>
-  <label>¿Cuántas familias afectadas?
-    <input name="households" type="number" min="1" value="1" />
+  <label class="label">¿Cuántas familias afectadas?
+    <input class="input" name="households" type="number" min="1" value="1" />
   </label>
-  <label>Describe la situación
-    <textarea name="description" rows="3" maxlength="2000"></textarea>
+  <label class="label">Describe la situación
+    <textarea class="input" name="description" rows="3" maxlength="2000"></textarea>
   </label>
-  <label>Teléfono de contacto
-    <input name="contact" type="tel" placeholder="Para que los organismos te contacten" />
+  <label class="label">Teléfono de contacto
+    <input class="input" name="contact" type="tel" placeholder="Para que los organismos te contacten" />
     <p class="hint">Solo lo ven los organismos acreditados, nunca es público.</p>
   </label>
   <div id="ts"></div>
-  <button type="submit">Enviar solicitud</button>
+  <button class="btn btn-destructive btn-block" style="margin-top:1.25rem" type="submit">Enviar solicitud</button>
   <div class="err" id="err"></div>
 </form>
-<div class="ok" id="ok" hidden></div>
+<div class="alert-success" id="ok" hidden></div>
 <script>
 let sitekey = null;
 fetch("/api/config").then(r => r.json()).then(c => {

@@ -4,21 +4,17 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Moderación — Mapa de Ayuda</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link href="/coss.css" rel="stylesheet" />
 <style>
-  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 0 auto; padding: 1rem; }
-  h1 { font-size: 1.2rem; }
-  .card { border: 1px solid #ddd; border-radius: 8px; padding: .8rem; margin: .6rem 0; }
-  .u1 { border-left: 6px solid #d32f2f; } .u2 { border-left: 6px solid #f9a825; } .u3 { border-left: 6px solid #1976d2; }
-  .meta { color: #555; font-size: .85rem; }
-  button { margin: .4rem .3rem 0 0; padding: .4rem .8rem; border-radius: 6px; border: 1px solid #999; background: #fff; cursor: pointer; }
-  .verify { background: #34a853; color: #fff; border: 0; }
-  .reject { background: #b3261e; color: #fff; border: 0; }
-  input.muni { width: 10rem; }
+  button { margin: .5rem .3rem 0 0; }
+  input.muni { width: 11rem; display: inline-block; margin: .5rem .3rem 0 0; }
 </style>
 </head>
-<body>
+<body class="page">
 <h1>Cola de moderación</h1>
-<p><input id="token" placeholder="Token de moderador" type="password" style="width:16rem" /> <button onclick="save()">Entrar</button></p>
+<p style="display:flex;gap:.5rem;align-items:center"><input class="input input-inline" id="token" placeholder="Token de moderador" type="password" style="width:16rem" /> <button class="btn btn-primary" style="margin:0" onclick="save()">Entrar</button></p>
 <div id="list"></div>
 <script>
 const $ = (s) => document.querySelector(s);
@@ -43,10 +39,10 @@ async function load() {
       ${r.description ?? ""}<br>
       <span class="meta">📍 ${r.muni_name ?? "⚠ sin municipio"} ${r.location_raw ? "· dijo: “" + r.location_raw + "”" : ""} ${r.location_detail ? "· detalle: " + r.location_detail : ""}
       · 👥 ${r.households} hogares · +${r.confirmations} confirmaciones · ☎ ${r.contact ?? "sin contacto"}</span><br>
-      <input class="muni" id="m${r.id}" placeholder="código DANE si falta" value="${r.muni_code ?? ""}" />
-      <button class="verify" onclick="act(${r.id},'verify','m${r.id}')">Verificar</button>
-      <button class="reject" onclick="act(${r.id},'reject')">Rechazar</button>
-      <button onclick="act(${r.id},'resolve')">Resuelta</button>
+      <input class="input muni" id="m${r.id}" placeholder="código DANE si falta" value="${r.muni_code ?? ""}" />
+      <button class="btn btn-success" onclick="act(${r.id},'verify','m${r.id}')">Verificar</button>
+      <button class="btn btn-destructive" onclick="act(${r.id},'reject')">Rechazar</button>
+      <button class="btn" onclick="act(${r.id},'resolve')">Resuelta</button>
     </div>`).join("");
 }
 load();
