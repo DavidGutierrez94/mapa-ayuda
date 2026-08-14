@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Casos — Mapa de Ayuda</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 0 auto; padding: 1rem; }
+  h1 { font-size: 1.2rem; } h2 { font-size: 1rem; margin: 1.2rem 0 .2rem; }
+  .card { border: 1px solid #ddd; border-radius: 8px; padding: .8rem; margin: .6rem 0; }
+  .u1 { border-left: 6px solid #d32f2f; } .u2 { border-left: 6px solid #f9a825; } .u3 { border-left: 6px solid #1976d2; }
+  .meta { color: #555; font-size: .85rem; }
+  button { margin: .4rem .3rem 0 0; padding: .4rem .8rem; border-radius: 6px; border: 1px solid #999; background: #fff; cursor: pointer; }
+  .attend { background: #f9a825; border: 0; }
+  .resolve { background: #34a853; color: #fff; border: 0; }
+  a.contact { margin-right: .6rem; }
+  .count { color: #555; font-weight: normal; }
+</style>
+</head>
+<body>
+<h1>Casos verificados · vista para organizaciones acreditadas</h1>
+<p class="meta">Esta vista incluye datos de contacto y ubicación precisa. Por favor no comparta esta información fuera de su organización.</p>
+<p><input id="token" placeholder="Token de organización" type="password" style="width:16rem" /> <button onclick="save()">Entrar</button>
+<a href="/api/feed?format=csv" download>Descargar CSV público</a></p>
+<div id="list"></div>
+<script>
+const $ = (s) => document.querySelector(s);
+function save() { localStorage.responderToken = $("#token").value; load(); }
+async function api(path, opts = {}) {
+  const res = await fetch(path, { ...opts, headers: { "content-type": "application/json", authorization: "Bearer " + (localStorage.responderToken ?? ""), ...opts.headers } });
+  if (res.status === 401) { $("#list").innerHTML = "<p>Token inválido.</p>"; throw new Error("401"); }
+  return res.json();
+}
+async function act(id, action) {
+  await api("/api/responder/action", { method: "POST", body: JSON.stringify({ id, action }) });
+  load();
+}
+const card = (r) => `
+  <div class="card u${r.urgency}">
+    <strong>#${r.id} · ${r.need_type} · urgencia ${r.urgency}</strong>
+    <span class="meta"> · ${r.channel}${r.source_org ? " (" + r.source_org + ")" : ""} · ${r.created_at}</span><br>
+    ${r.description ?? ""}<br>
+    <span class="meta">📍 ${r.muni_name ?? "sin municipio"}${r.location_detail ? " · " + r.location_detail : ""}${r.location_raw ? " · dijo: “" + r.location_raw + "”" : ""}
+    · 👥 ${r.households} hogares · +${r.confirmations} confirmaciones</span><br>
+    ${r.contact ? `☎ <a class="contact" href="tel:${r.contact}">${r.contact}</a><a class="contact" href="https://wa.me/${String(r.contact).replace(/\D/g, "")}" target="_blank">WhatsApp</a>` : `<span class="meta">sin contacto</span>`}
+    ${r.status === "verified"
+      ? `<button class="attend" onclick="act(${r.id},'attend')">Tomar el caso</button>`
+      : `<button class="resolve" onclick="act(${r.id},'resolve')">Marcar resuelto</button>`}
+  </div>`;
+async function load() {
+  if (!localStorage.responderToken) return;
+  const rows = await api("/api/responder/requests");
+  const attending = rows.filter((r) => r.status === "attending");
+  const verified = rows.filter((r) => r.status === "verified");
+  $("#list").innerHTML =
+    (rows.length === 0 ? "<p>No hay casos activos.</p>" : "") +
+    (attending.length ? `<h2>En atención <span class="count">(${attending.length})</span></h2>` + attending.map(card).join("") : "") +
+    (verified.length ? `<h2>Por atender <span class="count">(${verified.length})</span></h2>` + verified.map(card).join("") : "");
+}
+load();
+setInterval(load, 30_000);
+</script>
+</body>
+</html>

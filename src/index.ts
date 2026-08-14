@@ -273,6 +273,20 @@ export default {
       return json(rows.results);
     }
 
+    // Responders may move verified→attending→resolved, never verify/reject (human gate stays with moderators).
+    if (request.method === "POST" && path === "/api/responder/action") {
+      if (!env.RESPONDER_TOKEN || bearer(request) !== env.RESPONDER_TOKEN) return json({ error: "unauthorized" }, 401);
+      const b = (await request.json().catch(() => null)) as any;
+      const actions: Record<string, string> = { attend: "attending", resolve: "resolved" };
+      if (!b?.id || !actions[b.action]) return json({ error: "id and action (attend|resolve) required" }, 400);
+      await env.DB.prepare(
+        "UPDATE requests SET status=?, updated_at=datetime('now') WHERE id = ? AND status IN ('verified','attending')",
+      )
+        .bind(actions[b.action], b.id)
+        .run();
+      return json({ ok: true });
+    }
+
     // ── Static assets (map, form, moderation UI) ──
     return env.ASSETS.fetch(request);
   },

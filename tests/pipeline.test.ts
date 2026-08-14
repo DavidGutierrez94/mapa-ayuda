@@ -212,6 +212,37 @@ describe("PII boundary", () => {
   });
 });
 
+describe("responder case management", () => {
+  const respAction = (body: object, token = "test-responder-token") =>
+    SELF.fetch("https://x/api/responder/action", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  it("responder moves verified → attending → resolved, but cannot touch pending cases", async () => {
+    mockLLM({ need_type: "agua", urgency: 1, description: "agua", location_raw: "Quibdó", households: 2 });
+    await kapsoWebhook({ id: "r1", from: "5730050", text: "agua en quibdó" });
+    const [req] = await modQueue();
+
+    // Pending case: responder action is a no-op (human gate stays with moderators)
+    await respAction({ id: req.id, action: "attend" });
+    expect(await modQueue()).toHaveLength(1);
+
+    await modAction({ id: req.id, action: "verify" });
+    expect((await respAction({ id: req.id, action: "attend" })).status).toBe(200);
+    expect((await feed("status=attending")).rows).toHaveLength(1);
+
+    await respAction({ id: req.id, action: "resolve" });
+    expect((await feed("status=resolved")).rows).toHaveLength(1);
+  });
+
+  it("verify/reject are not valid responder actions; bad token → 401", async () => {
+    expect((await respAction({ id: 1, action: "verify" })).status).toBe(400);
+    expect((await respAction({ id: 1, action: "attend" }, "wrong")).status).toBe(401);
+  });
+});
+
 describe("LLM failure resilience", () => {
   it("LLM error still captures the report as 'otro' for moderator fixing", async () => {
     const pool = fetchMock.get("https://openrouter.ai");
