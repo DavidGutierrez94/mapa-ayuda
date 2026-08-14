@@ -28,6 +28,13 @@
   .panel .row > * { flex: 1; min-width: 9rem; }
   input.muni { width: 11rem; display: inline-block; margin: .5rem .3rem 0 0; }
   input.mergeid { width: 8rem; display: inline-block; margin: .5rem .3rem 0 0; }
+  body.wide { max-width: 1400px; }
+  .board { display: flex; gap: .6rem; overflow-x: auto; align-items: flex-start; padding-bottom: .5rem; }
+  .col { flex: 1 0 14rem; max-width: 18rem; background: var(--muted); border-radius: var(--radius); padding: .4rem .5rem; min-height: 8rem; }
+  .col.over { outline: 2px dashed var(--ring); outline-offset: -2px; }
+  .col h2 { margin: .2rem .25rem .4rem; font-size: .8125rem; }
+  .kcard { background: var(--card); border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px); padding: .45rem .55rem; margin: .35rem 0; cursor: grab; font-size: .8125rem; box-shadow: var(--shadow-xs); }
+  .kcard:active { cursor: grabbing; }
 </style>
 </head>
 <body class="page">
@@ -82,6 +89,7 @@
 
 <div class="tabs" id="tabs"></div>
 <div class="toolbar">
+  <button class="btn" id="viewToggle" onclick="toggleView()" style="margin:0">Tablero</button>
   <input class="input input-inline" id="q" placeholder="Buscar: #id, texto, municipio, teléfono" style="width:18rem" />
   <select class="input input-inline" id="f_need">
     <option value="">Toda necesidad</option>
@@ -191,21 +199,61 @@ function renderTabs() {
   $("#tabs").innerHTML = TABS.map(([s, label]) =>
     `<button class="tab ${s === status ? "active" : ""}" onclick="status='${s}';load()">${label}</button>`).join("");
 }
-async function load() {
-  if (!localStorage.modToken) { renderTabs(); return; }
-  renderTabs();
-  const qs = new URLSearchParams({ status });
+
+// ── Kanban board ──
+let view = localStorage.modView ?? "list";
+let dragging = false;
+function toggleView() { view = view === "list" ? "board" : "list"; localStorage.modView = view; load(); }
+const DROP_ACTION = { verified: "verify", rejected: "reject", attending: "attend", resolved: "resolve" };
+const UCOLOR = { 1: "var(--destructive)", 2: "var(--warning)", 3: "var(--info)" };
+const kcard = (r) => `
+  <div class="kcard" draggable="true" ondragstart="dragging=true;event.dataTransfer.setData('text/plain','${r.id}')" ondragend="dragging=false" title="${esc(r.description)}">
+    <strong>#${r.id}</strong> · ${esc(r.need_type)} <span style="color:${UCOLOR[r.urgency]}">●</span><br>
+    <span class="meta">📍 ${esc(r.muni_name) || "sin municipio"} · 👥 ${r.households} · +${r.confirmations}</span><br>
+    <span class="meta">${esc((r.description ?? "").slice(0, 70))}${(r.description ?? "").length > 70 ? "…" : ""}</span>
+  </div>`;
+async function dropCard(e, colStatus) {
+  e.preventDefault();
+  e.currentTarget.classList.remove("over");
+  const id = +e.dataTransfer.getData("text/plain");
+  const action = DROP_ACTION[colStatus];
+  if (!id || !action) { load(); return; } // "Pendientes" is not a drop target: nothing un-publishes back to pending
+  await api("/api/mod/action", { method: "POST", body: JSON.stringify({ id, action }) });
+  load();
+}
+function filterParams(s) {
+  const qs = new URLSearchParams({ status: s });
   if ($("#q").value.trim()) qs.set("q", $("#q").value.trim());
   if ($("#f_need").value) qs.set("need", $("#f_need").value);
   if ($("#f_urgency").value) qs.set("urgency", $("#f_urgency").value);
-  const rows = await api("/api/mod/requests?" + qs);
+  return qs;
+}
+async function loadBoard() {
+  const lists = await Promise.all(TABS.map(([s]) => api("/api/mod/requests?" + filterParams(s))));
+  $("#list").innerHTML = `<div class="board">` + TABS.map(([s, label], i) => `
+    <div class="col" data-status="${s}"
+         ondragover="event.preventDefault();this.classList.add('over')"
+         ondragleave="this.classList.remove('over')"
+         ondrop="dropCard(event,'${s}')">
+      <h2>${label} <span class="count">(${lists[i].length})</span></h2>
+      ${lists[i].map(kcard).join("")}
+    </div>`).join("") + `</div>`;
+}
+
+async function load() {
+  document.body.classList.toggle("wide", view === "board");
+  $("#viewToggle").textContent = view === "list" ? "Tablero" : "Lista";
+  if (!localStorage.modToken) { renderTabs(); return; }
+  if (view === "board") { $("#tabs").innerHTML = ""; return loadBoard(); }
+  renderTabs();
+  const rows = await api("/api/mod/requests?" + filterParams(status));
   $("#list").innerHTML = rows.length === 0 ? "<p class='meta'>Sin casos en esta vista.</p>" : rows.map(card).join("");
 }
 $("#q").oninput = () => { clearTimeout(window._t); window._t = setTimeout(load, 300); };
 $("#f_need").onchange = load;
 $("#f_urgency").onchange = load;
 load();
-setInterval(() => { if (document.querySelector(".panel:not([hidden])") === null) load(); }, 30_000);
+setInterval(() => { if (!dragging && document.querySelector(".panel:not([hidden])") === null) load(); }, 30_000);
 </script>
 </body>
 </html>
