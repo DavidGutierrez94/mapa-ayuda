@@ -11,18 +11,23 @@
 </head>
 <body class="page-narrow">
 <h1>Pedir ayuda <span class="badge badge-destructive">Terremoto Chocó 2026</span></h1>
-<p>También puedes escribirnos por <strong>WhatsApp o SMS</strong>, los números están en la página principal. Si reportas por tu comunidad, envía una solicitud por cada necesidad.</p>
+<p>También puedes escribirnos por <strong>WhatsApp o SMS</strong>, los números están en la página principal. Puedes marcar varias necesidades: registraremos una solicitud por cada una.</p>
+<style>
+  .checks { display: grid; grid-template-columns: 1fr 1fr; gap: .4rem; margin-top: .375rem; }
+  .check { display: flex; align-items: center; gap: .5rem; border: 1px solid var(--input); border-radius: calc(var(--radius) - 2px); padding: .5rem .6rem; font-weight: 400; font-size: .9rem; cursor: pointer; box-shadow: var(--shadow-xs); }
+  .check:has(:checked) { border-color: var(--ring); background: var(--muted); }
+  .check input { accent-color: var(--primary); margin: 0; }
+</style>
 <form id="f">
-  <label class="label">¿Qué se necesita?
-    <select class="input" name="need_type" required>
-      <option value="agua">Agua</option>
-      <option value="alimentos">Alimentos</option>
-      <option value="medico">Atención médica</option>
-      <option value="rescate">Rescate</option>
-      <option value="techo">Techo / albergue</option>
-      <option value="otro">Otra</option>
-    </select>
-  </label>
+  <span class="label">¿Qué se necesita? <span class="hint" style="display:inline">(marca todas las que apliquen)</span></span>
+  <div class="checks">
+    <label class="check"><input type="checkbox" name="need_types" value="agua" /> Agua</label>
+    <label class="check"><input type="checkbox" name="need_types" value="alimentos" /> Alimentos</label>
+    <label class="check"><input type="checkbox" name="need_types" value="medico" /> Atención médica</label>
+    <label class="check"><input type="checkbox" name="need_types" value="rescate" /> Rescate</label>
+    <label class="check"><input type="checkbox" name="need_types" value="techo" /> Techo / albergue</label>
+    <label class="check"><input type="checkbox" name="need_types" value="otro" /> Otra</label>
+  </div>
   <label class="label">¿Qué tan urgente?
     <select class="input" name="urgency">
       <option value="1">Vida en riesgo ahora</option>
@@ -63,6 +68,11 @@ document.getElementById("f").onsubmit = async (e) => {
   e.preventDefault();
   const fd = new FormData(e.target);
   const body = Object.fromEntries(fd.entries());
+  body.need_types = [...e.target.querySelectorAll('input[name="need_types"]:checked')].map((i) => i.value);
+  if (body.need_types.length === 0) {
+    document.getElementById("err").textContent = "Marca al menos una necesidad.";
+    return;
+  }
   body.urgency = +body.urgency; body.households = +body.households;
   if (sitekey) body.turnstile_token = e.target.querySelector('[name="cf-turnstile-response"]')?.value;
   const res = await fetch("/api/web-intake", {
@@ -73,7 +83,9 @@ document.getElementById("f").onsubmit = async (e) => {
     e.target.hidden = true;
     const ok = document.getElementById("ok");
     ok.hidden = false;
-    ok.innerHTML = `<strong>✔ Solicitud #${data.id} registrada.</strong><br>Un moderador la verificará y aparecerá en el <a href="/">mapa público</a>. Comparte esta página con quien lo necesite.`;
+    const many = (data.ids?.length ?? 1) > 1;
+    const ids = (data.ids ?? [data.id]).map((i) => "#" + i).join(", ");
+    ok.innerHTML = `<strong>✔ ${many ? "Solicitudes" : "Solicitud"} ${ids} registrada${many ? "s" : ""}.</strong><br>Un moderador ${many ? "las" : "la"} verificará y aparecerá${many ? "n" : ""} en el <a href="/">mapa público</a>. Comparte esta página con quien lo necesite.`;
   } else {
     document.getElementById("err").textContent = data.error ?? "Error, intenta de nuevo.";
   }

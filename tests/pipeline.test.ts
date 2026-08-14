@@ -103,6 +103,19 @@ describe("intake → triage → moderation → feed", () => {
     expect((await feed()).rows).toHaveLength(0);
   });
 
+  it("web form with several needs creates one request per need", async () => {
+    const res = await SELF.fetch("https://x/api/web-intake", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ need_types: ["agua", "alimentos", "agua"], urgency: 2, muni_name: "Quibdó", households: 3, contact: "573001" }),
+    });
+    expect(res.status).toBe(201);
+    expect(((await res.json()) as any).ids).toHaveLength(2); // deduped
+    const queue = await modQueue();
+    expect(queue.map((r) => r.need_type).sort()).toEqual(["agua", "alimentos"]);
+    expect(queue.every((r) => r.muni_code === "27001" && r.households === 3)).toBe(true);
+  });
+
   it("SMS via SMSGate flows through the same pipeline", async () => {
     mockLLM({ need_type: "alimentos", urgency: 2, description: "comida", location_raw: "Tadó", households: 5 });
     const body = JSON.stringify({
