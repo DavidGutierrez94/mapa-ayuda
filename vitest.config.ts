@@ -20,6 +20,8 @@ export default defineWorkersConfig(async () => {
               RESPONDER_TOKEN: "test-responder-token",
               ORG_TOKENS: "CruzRoja:test-org-token",
               LLM_API_KEY: "test",
+              GITHUB_TOKEN: "test-gh-token",
+              GITHUB_REPO: "test-org/test-repo",
             },
           },
         },

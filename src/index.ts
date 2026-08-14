@@ -2,6 +2,7 @@ import type { Env, PipelineReply } from "./types";
 import { handleInbound, createRequest, storeRaw } from "./pipeline";
 import { byCode, byName, allMunis } from "./gazetteer";
 import { resolveActor, logAction, sha256hex, RANK, type Actor } from "./auth";
+import { refineIssue, createGithubIssue } from "./feedback";
 import * as kapso from "./adapters/kapso";
 import * as smsgate from "./adapters/smsgate";
 
@@ -278,6 +279,84 @@ export default {
     // ── Config for static pages ──
     if (request.method === "GET" && path === "/api/config") {
       return json({ turnstile_sitekey: env.TURNSTILE_SITEKEY ?? null });
+    }
+
+    // ── Team feedback inbox: AI-refined GitHub issues (audit-log fallback so nothing is lost) ──
+    if (request.method === "POST" && path === "/api/feedback") {
+      const actor = await resolveActor(env, bearer(request));
+      if (!actor) return json({ error: "unauthorized" }, 401);
+      const b = (await request.json().catch(() => null)) as any;
+      if (!["bug", "feature"].includes(b?.type) || !b?.message?.trim())
+        return json({ error: "type (bug|feature) and message required" }, 422);
+      const refined = await refineIssue(env, {
+        type: b.type,
+        message: String(b.message).slice(0, 4000),
+        page: b.page ? String(b.page).slice(0, 200) : null,
+        device: typeof b.device === "object" && b.device !== null ? b.device : null,
+        actor: actor.name,
+        role: actor.role,
+      });
+      const issueUrl = await createGithubIssue(env, refined, [b.type === "bug" ? "bug" : "enhancement", "from-field"]);
+      await logAction(env, actor, "feedback", null, { type: b.type, title: refined.title, issue_url: issueUrl });
+      return json({ ok: true, issue_url: issueUrl, queued: !issueUrl }, 201);
+    }
+
+    // ── Reporting: aggregate stats for /informes (any authenticated actor) ──
+    if (request.method === "GET" && path === "/api/mod/stats") {
+      const actor = await resolveActor(env, bearer(request));
+      if (!actor) return json({ error: "unauthorized" }, 401);
+      const days = Math.min(Math.max(+(url.searchParams.get("days") ?? 30) || 30, 1), 365);
+      const since = `-${days} days`;
+      const [byDay, byNeed, byMuni, byStatus, totals] = await Promise.all([
+        env.DB.prepare(
+          `SELECT date(created_at) AS d, COUNT(*) AS n,
+                  SUM(status IN ('verified','attending','resolved')) AS verified
+           FROM requests WHERE created_at >= datetime('now', ?) GROUP BY d ORDER BY d`,
+        ).bind(since).all(),
+        env.DB.prepare(
+          `SELECT need_type, COUNT(*) AS n FROM requests
+           WHERE created_at >= datetime('now', ?) GROUP BY need_type ORDER BY n DESC`,
+        ).bind(since).all(),
+        env.DB.prepare(
+          `SELECT muni_name, COUNT(*) AS n, SUM(households) AS households FROM requests
+           WHERE muni_name IS NOT NULL AND created_at >= datetime('now', ?)
+           GROUP BY muni_code ORDER BY n DESC LIMIT 10`,
+        ).bind(since).all(),
+        env.DB.prepare(
+          `SELECT status, COUNT(*) AS n FROM requests
+           WHERE created_at >= datetime('now', ?) GROUP BY status`,
+        ).bind(since).all(),
+        env.DB.prepare(
+          `SELECT COUNT(*) AS requests, IFNULL(SUM(households),0) AS households,
+                  IFNULL(SUM(people_count),0) AS people,
+                  (SELECT COUNT(*) FROM confirmations) AS confirmations
+           FROM requests WHERE created_at >= datetime('now', ?)`,
+        ).bind(since).first(),
+      ]);
+      const median = (xs: number[]) => {
+        if (!xs.length) return null;
+        const s = [...xs].sort((a, b) => a - b);
+        const m = Math.floor(s.length / 2);
+        return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+      };
+      const hours = async (action: string) =>
+        (
+          await env.DB.prepare(
+            `SELECT (julianday(MIN(l.created_at)) - julianday(r.created_at)) * 24 AS hrs
+             FROM mod_log l JOIN requests r ON r.id = l.request_id
+             WHERE l.action = ? AND r.created_at >= datetime('now', ?) GROUP BY l.request_id`,
+          ).bind(action, since).all()
+        ).results.map((r: any) => r.hrs);
+      return json({
+        days,
+        by_day: byDay.results,
+        by_need: byNeed.results,
+        by_muni: byMuni.results,
+        by_status: byStatus.results,
+        totals,
+        median_hours_to_verify: median(await hours("verify")),
+        median_hours_to_resolve: median(await hours("resolve")),
+      });
     }
 
     // ── Admin: users + audit log ──

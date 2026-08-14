@@ -1,5 +1,5 @@
-import { SELF, env } from "cloudflare:test";
-import { beforeEach, describe, expect, it } from "vitest";
+import { SELF, env, fetchMock } from "cloudflare:test";
+import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 const call = (path: string, token: string, body?: object) =>
   SELF.fetch(`https://x${path}`, {
@@ -168,5 +168,80 @@ describe("form v2 + geolocation (PRD v2 P3)", () => {
     const [req] = (await (await call("/api/mod/requests?status=pending", "test-mod-token")).json()) as any[];
     expect(req.precise_lat).toBeNull();
     expect(req.precise_lon).toBeNull();
+  });
+});
+
+describe("feedback inbox → GitHub issues", () => {
+  beforeAll(() => fetchMock.activate());
+
+  const mockRefineAndGithub = (opts: { llmFails?: boolean; ghFails?: boolean } = {}) => {
+    const or = fetchMock.get("https://openrouter.ai");
+    or.cleanMocks();
+    if (opts.llmFails) or.intercept({ path: "/api/v1/chat/completions", method: "POST" }).reply(500, "boom").persist();
+    else
+      or.intercept({ path: "/api/v1/chat/completions", method: "POST" })
+        .reply(200, { choices: [{ message: { content: JSON.stringify({ title: "Corregir filtro de urgencia en tablero", body: "## Resumen\nEl filtro no aplica en la vista tablero." }) } }] })
+        .persist();
+    const gh = fetchMock.get("https://api.github.com");
+    gh.cleanMocks();
+    if (opts.ghFails) gh.intercept({ path: /.*/, method: "POST" }).reply(500, "{}").persist();
+    else gh.intercept({ path: "/repos/test-org/test-repo/issues", method: "POST" }).reply(201, { html_url: "https://github.com/test-org/test-repo/issues/7" }).persist();
+  };
+
+  it("mod report becomes an AI-refined GitHub issue and is audited", async () => {
+    mockRefineAndGithub();
+    const res = await call("/api/feedback", "test-mod-token", {
+      type: "bug", message: "el filtro de urgencia no funciona en el tablero",
+      page: "/mod", device: { ua: "TestBrowser", pantalla: "800x600" },
+    });
+    expect(res.status).toBe(201);
+    const d = (await res.json()) as any;
+    expect(d.issue_url).toBe("https://github.com/test-org/test-repo/issues/7");
+    expect(d.queued).toBe(false);
+    const log = (await (await call("/api/admin/log", "test-admin-token")).json()) as any[];
+    expect(log[0]).toMatchObject({ actor: "legacy-mod", action: "feedback" });
+    expect(log[0].detail).toContain("issues/7");
+  });
+
+  it("LLM failure still files the issue with the raw message; GitHub failure queues in the log", async () => {
+    mockRefineAndGithub({ llmFails: true });
+    const d = (await (await call("/api/feedback", "test-mod-token", { type: "feature", message: "quiero exportar informes" })).json()) as any;
+    expect(d.issue_url).toContain("issues/7"); // fallback title, still created
+
+    mockRefineAndGithub({ ghFails: true });
+    const d2 = (await (await call("/api/feedback", "test-mod-token", { type: "bug", message: "algo falló" })).json()) as any;
+    expect(d2.queued).toBe(true);
+    const log = (await (await call("/api/admin/log", "test-admin-token")).json()) as any[];
+    expect(log[0].detail).toContain('"issue_url":null');
+  });
+
+  it("unauthenticated or invalid feedback is rejected", async () => {
+    expect((await call("/api/feedback", "nope", { type: "bug", message: "x" })).status).toBe(401);
+    expect((await call("/api/feedback", "test-mod-token", { type: "otro", message: "x" })).status).toBe(422);
+  });
+});
+
+describe("reporting stats (PRD v2 P4)", () => {
+  it("aggregates by day/need/muni/status with medians from the audit log", async () => {
+    await env.DB.prepare(
+      "INSERT INTO requests (need_type, urgency, channel, muni_code, muni_name, households, created_at) VALUES ('agua', 1, 'web', '27001', 'Quibdó', 5, datetime('now','-2 hours'))",
+    ).run();
+    await seedRequest(); // second agua/Quibdó, households default 1, created now
+    const old = await env.DB.prepare("SELECT id FROM requests ORDER BY id LIMIT 1").first<any>();
+    await call("/api/mod/action", "test-mod-token", { id: old.id, action: "verify" });
+
+    const res = await call("/api/mod/stats?days=7", "test-mod-token");
+    expect(res.status).toBe(200);
+    const s = (await res.json()) as any;
+    expect(s.totals.requests).toBe(2);
+    expect(s.by_need).toEqual([{ need_type: "agua", n: 2 }]);
+    expect(s.by_muni[0]).toMatchObject({ muni_name: "Quibdó", n: 2, households: 6 });
+    const st = Object.fromEntries(s.by_status.map((r: any) => [r.status, r.n]));
+    expect(st).toMatchObject({ pending: 1, verified: 1 });
+    expect(s.median_hours_to_verify).toBeGreaterThan(1.9);
+    expect(s.median_hours_to_verify).toBeLessThan(2.1);
+    expect(s.median_hours_to_resolve).toBeNull();
+
+    expect((await SELF.fetch("https://x/api/mod/stats")).status).toBe(401);
   });
 });

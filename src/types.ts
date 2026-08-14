@@ -17,6 +17,9 @@ export interface Env {
   RESPONDER_TOKEN?: string;
   /** "OrgName:token,OtherOrg:token" */
   ORG_TOKENS?: string;
+  /** Fine-grained PAT with issues:write; unset → feedback queues in mod_log */
+  GITHUB_TOKEN?: string;
+  GITHUB_REPO?: string;
 }
 
 /** Normalized inbound message from any chat channel. */

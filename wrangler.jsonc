@@ -20,7 +20,9 @@
   "vars": {
     // OpenAI-compatible endpoint; any deployer can swap provider/model.
     "LLM_BASE_URL": "https://openrouter.ai/api/v1",
-    "LLM_MODEL": "anthropic/claude-haiku-4.5"
+    "LLM_MODEL": "anthropic/claude-haiku-4.5",
+    // Feedback inbox creates issues here (needs GITHUB_TOKEN secret; otherwise reports queue in the audit log).
+    "GITHUB_REPO": "DavidGutierrez94/mapa-ayuda"
   }
   // Secrets (wrangler secret put ...): LLM_API_KEY, KAPSO_API_KEY, KAPSO_PHONE_ID,
   // KAPSO_WEBHOOK_SECRET, SMSGATE_SIGNING_KEY, SMSGATE_LOGIN, SMSGATE_PASSWORD,
