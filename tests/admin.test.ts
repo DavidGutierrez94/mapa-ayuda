@@ -189,16 +189,22 @@ describe("security hardening", () => {
     expect((await ipIntake("203.0.113.8")).status).toBe(201);
   });
 
-  it("H-2: leader-check is rate-limited and never leaks the full legal name (H-4)", async () => {
+  it("H-2: the limit holds under a concurrent burst (atomic upsert, no over-admit)", async () => {
+    const ip = "203.0.113.99";
+    const results = await Promise.all(Array.from({ length: 25 }, () => ipIntake(ip)));
+    const ok = results.filter((r) => r.status === 201).length;
+    expect(ok).toBe(20); // exactly the limit even when 25 fire at once; the rest are 429
+  });
+
+  it("H-4: leader-check returns only validity, no identity at all", async () => {
     const { link_token } = (await (
       await call("/api/admin/leaders", "test-admin-token", { name: "Rosa Elena Palacios", cedula: "1077998877", muni_code: "27001" })
     ).json()) as any;
     const check = async (ip: string) =>
       SELF.fetch("https://x/api/leader-check?token=" + link_token, { headers: { "CF-Connecting-IP": ip } });
     const body = (await (await check("198.51.100.1")).json()) as any;
-    expect(body.ok).toBe(true);
-    expect(body.greeting).toBe("Rosa"); // first name only
-    expect(JSON.stringify(body)).not.toContain("Palacios"); // full identity never returned
+    expect(body).toEqual({ ok: true }); // no name, no greeting, nothing that could identify the leader
+    expect(JSON.stringify(body)).not.toContain("Rosa");
 
     const ip = "198.51.100.2";
     for (let i = 0; i < 60; i++) await check(ip);
@@ -210,6 +216,10 @@ describe("security hardening", () => {
     const row = await env.DB.prepare("SELECT cedula_hash FROM leaders").first<any>();
     expect(row.cedula_hash).toBe(await hashCedula(env, "1234567890")); // matches the peppered HMAC
     expect(row.cedula_hash).not.toBe(await sha256hex("1234567890")); // NOT the old brute-forceable digest
+  });
+
+  it("H-3: hashCedula fails closed when the pepper is unset", async () => {
+    await expect(hashCedula({} as any, "1234567890")).rejects.toThrow(/CEDULA_PEPPER/);
   });
 });
 

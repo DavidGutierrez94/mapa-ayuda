@@ -17,6 +17,10 @@
       "migrations_dir": "migrations"
     }
   ],
+  "triggers": {
+    // Hourly sweep of stale rate-limit rows (see cleanupRateLimits).
+    "crons": ["0 * * * *"]
+  },
   "vars": {
     // OpenAI-compatible endpoint; any deployer can swap provider/model.
     "LLM_BASE_URL": "https://openrouter.ai/api/v1",

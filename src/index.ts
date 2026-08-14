@@ -1,7 +1,7 @@
 import type { Env, PipelineReply } from "./types";
 import { handleInbound, createRequest, storeRaw } from "./pipeline";
 import { byCode, byName, allMunis } from "./gazetteer";
-import { resolveActor, logAction, sha256hex, hashCedula, rateLimit, RANK, type Actor } from "./auth";
+import { resolveActor, logAction, sha256hex, hashCedula, rateLimit, cleanupRateLimits, RANK, type Actor } from "./auth";
 import { refineIssue, createGithubIssue } from "./feedback";
 import * as kapso from "./adapters/kapso";
 import * as smsgate from "./adapters/smsgate";
@@ -196,12 +196,12 @@ export default {
     if (request.method === "GET" && path === "/api/leader-check") {
       // Rate limit (H-2): this endpoint is an unauthenticated valid/invalid token oracle.
       if (!(await rateLimit(env, `leadercheck:${clientIp(request)}`, 60, 60))) return tooMany();
-      const row = await env.DB.prepare("SELECT name FROM leaders WHERE link_token = ? AND active = 1")
+      const row = await env.DB.prepare("SELECT 1 AS ok FROM leaders WHERE link_token = ? AND active = 1")
         .bind(url.searchParams.get("token") ?? "")
         .first<any>();
-      // Do NOT leak the leader's legal name to an unauthenticated caller (H-4): confirm the
-      // link is valid and hand back only a first name so the form can greet them.
-      return json(row ? { ok: true, greeting: String(row.name).trim().split(/\s+/)[0] } : { ok: false });
+      // Return only validity, never identity (H-4): even a first name can single out a
+      // community leader locally. The form shows a generic confirmation instead.
+      return json(row ? { ok: true } : { ok: false });
     }
 
     // ── Open intake standard: org push ──
@@ -611,5 +611,11 @@ export default {
 
     // ── Static assets (map, form, moderation UI) ──
     return env.ASSETS.fetch(request);
+  },
+
+  // Hourly cron: sweep stale rate-limit rows so the table (and its IP-derived keys)
+  // stays bounded regardless of traffic.
+  async scheduled(_event: ScheduledController, env: Env): Promise<void> {
+    await cleanupRateLimits(env);
   },
 } satisfies ExportedHandler<Env>;
