@@ -1,5 +1,6 @@
 import { SELF, env, fetchMock } from "cloudflare:test";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { hashCedula, sha256hex } from "../src/auth";
 
 const call = (path: string, token: string, body?: object) =>
   SELF.fetch(`https://x${path}`, {
@@ -14,7 +15,7 @@ const seedRequest = () =>
   ).run();
 
 beforeEach(async () => {
-  await env.DB.exec("DELETE FROM mod_log; DELETE FROM users; DELETE FROM leaders; DELETE FROM confirmations; DELETE FROM requests;");
+  await env.DB.exec("DELETE FROM mod_log; DELETE FROM users; DELETE FROM leaders; DELETE FROM confirmations; DELETE FROM requests; DELETE FROM rate_limits;");
 });
 
 const webIntake = (body: object) =>
@@ -168,6 +169,47 @@ describe("form v2 + geolocation (PRD v2 P3)", () => {
     const [req] = (await (await call("/api/mod/requests?status=pending", "test-mod-token")).json()) as any[];
     expect(req.precise_lat).toBeNull();
     expect(req.precise_lon).toBeNull();
+  });
+});
+
+describe("security hardening", () => {
+  const ipIntake = (ip: string, body: object = { need_types: ["agua"], muni_name: "Quibdó" }) =>
+    SELF.fetch("https://x/api/web-intake", {
+      method: "POST",
+      headers: { "content-type": "application/json", "CF-Connecting-IP": ip },
+      body: JSON.stringify(body),
+    });
+
+  it("H-2: web intake is rate-limited per IP (429 past the window cap)", async () => {
+    // A unique IP gives this test its own bucket; the limit is 20/min.
+    const ip = "203.0.113.7";
+    for (let i = 0; i < 20; i++) expect((await ipIntake(ip)).status).toBe(201);
+    expect((await ipIntake(ip)).status).toBe(429);
+    // A different IP is unaffected.
+    expect((await ipIntake("203.0.113.8")).status).toBe(201);
+  });
+
+  it("H-2: leader-check is rate-limited and never leaks the full legal name (H-4)", async () => {
+    const { link_token } = (await (
+      await call("/api/admin/leaders", "test-admin-token", { name: "Rosa Elena Palacios", cedula: "1077998877", muni_code: "27001" })
+    ).json()) as any;
+    const check = async (ip: string) =>
+      SELF.fetch("https://x/api/leader-check?token=" + link_token, { headers: { "CF-Connecting-IP": ip } });
+    const body = (await (await check("198.51.100.1")).json()) as any;
+    expect(body.ok).toBe(true);
+    expect(body.greeting).toBe("Rosa"); // first name only
+    expect(JSON.stringify(body)).not.toContain("Palacios"); // full identity never returned
+
+    const ip = "198.51.100.2";
+    for (let i = 0; i < 60; i++) await check(ip);
+    expect((await check(ip)).status).toBe(429);
+  });
+
+  it("H-3: cédula is stored as the peppered HMAC, not bare SHA-256", async () => {
+    await call("/api/admin/leaders", "test-admin-token", { name: "Ana", cedula: "1234567890", muni_code: "27001" });
+    const row = await env.DB.prepare("SELECT cedula_hash FROM leaders").first<any>();
+    expect(row.cedula_hash).toBe(await hashCedula(env, "1234567890")); // matches the peppered HMAC
+    expect(row.cedula_hash).not.toBe(await sha256hex("1234567890")); // NOT the old brute-forceable digest
   });
 });
 

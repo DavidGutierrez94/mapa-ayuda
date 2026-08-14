@@ -1,7 +1,7 @@
 import type { Env, PipelineReply } from "./types";
 import { handleInbound, createRequest, storeRaw } from "./pipeline";
 import { byCode, byName, allMunis } from "./gazetteer";
-import { resolveActor, logAction, sha256hex, RANK, type Actor } from "./auth";
+import { resolveActor, logAction, sha256hex, hashCedula, rateLimit, RANK, type Actor } from "./auth";
 import { refineIssue, createGithubIssue } from "./feedback";
 import * as kapso from "./adapters/kapso";
 import * as smsgate from "./adapters/smsgate";
@@ -14,6 +14,9 @@ const json = (data: unknown, status = 200, headers: Record<string, string> = {})
 
 const bearer = (req: Request) =>
   req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? null;
+
+const clientIp = (req: Request) => req.headers.get("CF-Connecting-IP") ?? "unknown";
+const tooMany = () => json({ error: "demasiadas solicitudes, intente de nuevo en un minuto" }, 429);
 
 const NEED_TYPES = ["agua", "alimentos", "medico", "rescate", "techo", "higiene", "infancia", "otro"];
 const PUBLIC_STATUSES = ["verified", "attending", "resolved"];
@@ -40,7 +43,9 @@ export function validateHelpRequest(b: any): string[] {
 }
 
 async function verifyTurnstile(env: Env, token: string | undefined, ip: string | null): Promise<boolean> {
-  if (!env.TURNSTILE_SECRET) return true; // dev/local: not configured → open (set the secret in prod!)
+  // Fail CLOSED (H-1): a missing secret in prod must not silently open the only public
+  // write endpoint. Local dev/tests opt in explicitly with ALLOW_OPEN_INTAKE=1.
+  if (!env.TURNSTILE_SECRET) return env.ALLOW_OPEN_INTAKE === "1";
   if (!token) return false;
   const res = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
     method: "POST",
@@ -125,6 +130,9 @@ export default {
     if (request.method === "POST" && path === "/api/web-intake") {
       const b = (await request.json().catch(() => null)) as any;
       if (!b) return json({ error: "invalid JSON" }, 400);
+      // Rate limit (H-2): cap intake per IP even when a Turnstile token is present, so a
+      // solved-challenge bot farm can't flood the moderation queue (one submit = up to 8 rows).
+      if (!(await rateLimit(env, `intake:${clientIp(request)}`, 20, 60))) return tooMany();
       if (!(await verifyTurnstile(env, b.turnstile_token, request.headers.get("CF-Connecting-IP"))))
         return json({ error: "verificación anti-spam fallida" }, 403);
       // Trusted leader lane (hybrid: open intake stays open; a valid leader link + cédula adds a verified badge).
@@ -134,7 +142,7 @@ export default {
           .bind(String(b.leader_token))
           .first<any>();
         const cedula = String(b.cedula ?? "").replace(/\D/g, "");
-        if (!leader || !cedula || (await sha256hex(cedula)) !== leader.cedula_hash)
+        if (!leader || !cedula || (await hashCedula(env, cedula)) !== leader.cedula_hash)
           return json({ error: "verificación de líder fallida: revise el enlace y la cédula" }, 403);
         leaderId = leader.id;
       }
@@ -186,10 +194,14 @@ export default {
 
     // Public: validate a leader link before showing the leader section on the form.
     if (request.method === "GET" && path === "/api/leader-check") {
+      // Rate limit (H-2): this endpoint is an unauthenticated valid/invalid token oracle.
+      if (!(await rateLimit(env, `leadercheck:${clientIp(request)}`, 60, 60))) return tooMany();
       const row = await env.DB.prepare("SELECT name FROM leaders WHERE link_token = ? AND active = 1")
         .bind(url.searchParams.get("token") ?? "")
         .first<any>();
-      return json(row ? { ok: true, name: row.name } : { ok: false });
+      // Do NOT leak the leader's legal name to an unauthenticated caller (H-4): confirm the
+      // link is valid and hand back only a first name so the form can greet them.
+      return json(row ? { ok: true, greeting: String(row.name).trim().split(/\s+/)[0] } : { ok: false });
     }
 
     // ── Open intake standard: org push ──
@@ -287,6 +299,8 @@ export default {
     if (request.method === "POST" && path === "/api/feedback") {
       const actor = await resolveActor(env, bearer(request));
       if (!actor) return json({ error: "unauthorized" }, 401);
+      // Rate limit (H-2/M-2): each submission triggers a paid LLM call + a GitHub issue.
+      if (!(await rateLimit(env, `feedback:${actor.name}`, 15, 60))) return tooMany();
       const b = (await request.json().catch(() => null)) as any;
       if (!["bug", "feature"].includes(b?.type) || !b?.message?.trim())
         return json({ error: "type (bug|feature) and message required" }, 422);
@@ -409,7 +423,7 @@ export default {
             String(b.name).slice(0, 100),
             b.phone ? String(b.phone).slice(0, 50) : null,
             byCode(b.muni_code)?.code ?? null,
-            await sha256hex(cedula), // raw cédula is hashed and discarded (Ley 1581 minimization)
+            await hashCedula(env, cedula), // peppered HMAC; raw cédula discarded (Ley 1581 minimization)
             cedula.slice(-3),
             link_token,
             actor.name,

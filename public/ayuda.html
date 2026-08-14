@@ -107,7 +107,7 @@ if (leaderToken) {
   fetch("/api/leader-check?token=" + encodeURIComponent(leaderToken)).then(r => r.json()).then(d => {
     if (d.ok) {
       document.getElementById("leaderBox").hidden = false;
-      document.getElementById("leaderName").textContent = "Hola " + d.name + ". Sus reportes llegarán marcados como reporte de líder verificado.";
+      document.getElementById("leaderName").textContent = "Hola " + (d.greeting || "") + ". Sus reportes llegarán marcados como reporte de líder verificado.";
     }
   });
 }
