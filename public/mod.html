@@ -10,6 +10,10 @@
 <style>
   button { margin: .5rem .3rem 0 0; }
   .tabs { display: flex; gap: .125rem; border-bottom: 1px solid var(--border); margin: 1rem 0 .75rem; flex-wrap: wrap; }
+  .checks { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .4rem; margin-top: .5rem; }
+  .check { display: flex; align-items: center; gap: .5rem; border: 1px solid var(--input); border-radius: calc(var(--radius) - 2px); padding: .45rem .6rem; font-weight: 400; font-size: .875rem; cursor: pointer; box-shadow: var(--shadow-xs); }
+  .check:has(:checked) { border-color: var(--ring); background: var(--muted); }
+  .check input { accent-color: var(--primary); margin: 0; }
   .tab { border: 0; background: none; box-shadow: none; border-radius: 0; margin: 0; padding: .5rem .75rem; font-size: .875rem; color: var(--muted-foreground); border-bottom: 2px solid transparent; }
   .tab:hover { background: var(--muted); }
   .tab.active { color: var(--foreground); font-weight: 600; border-bottom-color: var(--foreground); }
@@ -52,11 +56,15 @@
 
 <div class="panel" id="create" hidden>
   <strong>Nueva solicitud manual</strong> <span class="meta">(llamada, radio, en persona; entra como pendiente y se verifica igual que las demás)</span>
+  <div class="checks" id="c_needs">
+    <label class="check"><input type="checkbox" value="agua" /> Agua</label>
+    <label class="check"><input type="checkbox" value="alimentos" /> Alimentos</label>
+    <label class="check"><input type="checkbox" value="medico" /> Atención médica</label>
+    <label class="check"><input type="checkbox" value="rescate" /> Rescate</label>
+    <label class="check"><input type="checkbox" value="techo" /> Techo / albergue</label>
+    <label class="check"><input type="checkbox" value="otro" /> Otra</label>
+  </div>
   <div class="row" style="margin-top:.5rem">
-    <select class="input" id="c_need">
-      <option value="agua">Agua</option><option value="alimentos">Alimentos</option><option value="medico">Atención médica</option>
-      <option value="rescate">Rescate</option><option value="techo">Techo / albergue</option><option value="otro">Otra</option>
-    </select>
     <select class="input" id="c_urgency">
       <option value="1">Urgencia 1: vida en riesgo</option><option value="2" selected>Urgencia 2: horas</option><option value="3">Urgencia 3: días</option>
     </select>
@@ -120,9 +128,11 @@ async function saveEdit(id) {
   });
 }
 async function createReq() {
+  const need_types = [...document.querySelectorAll("#c_needs input:checked")].map((i) => i.value);
+  if (need_types.length === 0) { $("#c_err").textContent = "Marque al menos una necesidad."; return; }
   const muni = $("#c_muni").value.trim();
   const body = {
-    need_type: $("#c_need").value, urgency: +$("#c_urgency").value,
+    need_types, urgency: +$("#c_urgency").value,
     description: $("#c_desc").value, households: +$("#c_households").value || 1,
     contact: $("#c_contact").value, location_detail: $("#c_detail").value,
     ...(/^\d{5}$/.test(muni) ? { muni_code: muni } : { muni_name: muni }),
@@ -130,6 +140,7 @@ async function createReq() {
   const res = await api("/api/mod/create", { method: "POST", body: JSON.stringify(body) });
   if (res.error) { $("#c_err").textContent = res.error; return; }
   $("#create").hidden = true; $("#c_desc").value = ""; $("#c_muni").value = ""; $("#c_contact").value = ""; $("#c_detail").value = "";
+  document.querySelectorAll("#c_needs input:checked").forEach((i) => (i.checked = false));
   status = "pending"; load();
 }
 

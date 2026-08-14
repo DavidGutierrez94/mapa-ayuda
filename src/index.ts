@@ -261,20 +261,28 @@ export default {
       // Manual intake (phone call, radio, in person). Lands as pending: the human gate applies to moderators' own entries too.
       if (request.method === "POST" && path === "/api/mod/create") {
         const b = (await request.json().catch(() => null)) as any;
-        if (!b || !NEED_TYPES.includes(b.need_type)) return json({ error: "need_type inválido" }, 422);
+        if (!b) return json({ error: "invalid JSON" }, 400);
+        const needs = [
+          ...new Set(((Array.isArray(b.need_types) ? b.need_types : [b.need_type]) as unknown[]).filter((n) => NEED_TYPES.includes(n as string))),
+        ] as string[];
+        if (!needs.length) return json({ error: "need_type inválido" }, 422);
         const muni = byCode(b.muni_code) ?? byName(b.muni_name);
-        const id = await createRequest(env, {
-          need_type: b.need_type,
-          urgency: [1, 2, 3].includes(b.urgency) ? b.urgency : 2,
-          description: b.description ? String(b.description).slice(0, 2000) : null,
-          muni,
-          location_raw: b.muni_name ?? null,
-          location_detail: b.location_detail ? String(b.location_detail).slice(0, 500) : null,
-          households: Number.isInteger(b.households) && b.households > 0 ? b.households : 1,
-          contact: b.contact ? String(b.contact).slice(0, 50) : null,
-          channel: "manual",
-        });
-        return json({ ok: true, id }, 201);
+        const ids: number[] = [];
+        for (const need_type of needs)
+          ids.push(
+            await createRequest(env, {
+              need_type,
+              urgency: [1, 2, 3].includes(b.urgency) ? b.urgency : 2,
+              description: b.description ? String(b.description).slice(0, 2000) : null,
+              muni,
+              location_raw: b.muni_name ?? null,
+              location_detail: b.location_detail ? String(b.location_detail).slice(0, 500) : null,
+              households: Number.isInteger(b.households) && b.households > 0 ? b.households : 1,
+              contact: b.contact ? String(b.contact).slice(0, 50) : null,
+              channel: "manual",
+            }),
+          );
+        return json({ ok: true, id: ids[0], ids }, 201);
       }
       if (request.method === "POST" && path === "/api/mod/action") {
         const b = (await request.json().catch(() => null)) as any;

@@ -245,6 +245,13 @@ describe("mod dashboard: CRUD, search, tabs", () => {
     expect(req).toMatchObject({ channel: "manual", muni_code: "27001", need_type: "medico" });
   });
 
+  it("manual create accepts several needs, one request per need", async () => {
+    const res = await create({ need_types: ["agua", "techo"], urgency: 2, muni_name: "Istmina", households: 4 });
+    expect(res.status).toBe(201);
+    expect(((await res.json()) as any).ids).toHaveLength(2);
+    expect((await list("status=pending")).map((r: any) => r.need_type).sort()).toEqual(["agua", "techo"]);
+  });
+
   it("listing filters by status, need and urgency; search matches text, id and municipality", async () => {
     await create({ need_type: "agua", urgency: 2, muni_name: "Quibdó", description: "falta agua" });
     await create({ need_type: "techo", urgency: 1, muni_name: "Istmina", description: "carpas urgentes" });
