@@ -227,6 +227,45 @@ export default {
         ).all();
         return json(rows.results);
       }
+      // Full listing for the dashboard: tabs (status), search (q) and filters (need, urgency).
+      if (request.method === "GET" && path === "/api/mod/requests") {
+        const conds = ["r.status = ?"];
+        const binds: unknown[] = [url.searchParams.get("status") ?? "pending"];
+        const need = url.searchParams.get("need");
+        if (need) { conds.push("r.need_type = ?"); binds.push(need); }
+        const urgency = url.searchParams.get("urgency");
+        if (urgency) { conds.push("r.urgency = ?"); binds.push(+urgency); }
+        const q = url.searchParams.get("q");
+        if (q) {
+          conds.push("(CAST(r.id AS TEXT) = ? OR r.description LIKE ? OR r.muni_name LIKE ? OR r.location_raw LIKE ? OR r.location_detail LIKE ? OR r.contact LIKE ?)");
+          const like = `%${q}%`;
+          binds.push(q, like, like, like, like, like);
+        }
+        const rows = await env.DB.prepare(
+          `SELECT r.*, IFNULL(c.cnt,0) AS confirmations FROM requests r
+           LEFT JOIN (SELECT request_id, COUNT(*) cnt FROM confirmations GROUP BY request_id) c ON c.request_id = r.id
+           WHERE ${conds.join(" AND ")} ORDER BY r.urgency, r.id DESC LIMIT 200`,
+        ).bind(...binds).all();
+        return json(rows.results);
+      }
+      // Manual intake (phone call, radio, in person). Lands as pending: the human gate applies to moderators' own entries too.
+      if (request.method === "POST" && path === "/api/mod/create") {
+        const b = (await request.json().catch(() => null)) as any;
+        if (!b || !NEED_TYPES.includes(b.need_type)) return json({ error: "need_type inválido" }, 422);
+        const muni = byCode(b.muni_code) ?? byName(b.muni_name);
+        const id = await createRequest(env, {
+          need_type: b.need_type,
+          urgency: [1, 2, 3].includes(b.urgency) ? b.urgency : 2,
+          description: b.description ? String(b.description).slice(0, 2000) : null,
+          muni,
+          location_raw: b.muni_name ?? null,
+          location_detail: b.location_detail ? String(b.location_detail).slice(0, 500) : null,
+          households: Number.isInteger(b.households) && b.households > 0 ? b.households : 1,
+          contact: b.contact ? String(b.contact).slice(0, 50) : null,
+          channel: "manual",
+        });
+        return json({ ok: true, id }, 201);
+      }
       if (request.method === "POST" && path === "/api/mod/action") {
         const b = (await request.json().catch(() => null)) as any;
         const actions: Record<string, string> = {
@@ -236,6 +275,13 @@ export default {
           resolve: "resolved",
         };
         if (!b?.id) return json({ error: "id required" }, 400);
+        if (b.action === "delete") {
+          // Hard delete, for spam/test entries; real cases should be rejected, not deleted.
+          await env.DB.prepare("DELETE FROM confirmations WHERE request_id = ?").bind(b.id).run();
+          await env.DB.prepare("DELETE FROM pending_actions WHERE request_id = ?").bind(b.id).run();
+          await env.DB.prepare("DELETE FROM requests WHERE id = ?").bind(b.id).run();
+          return json({ ok: true });
+        }
         if (b.action === "merge") {
           if (!b.target_id) return json({ error: "target_id required" }, 400);
           const merged = await env.DB.prepare("SELECT contact FROM requests WHERE id = ?").bind(b.id).first<any>();
@@ -253,6 +299,21 @@ export default {
           )
             .bind(muni.code, muni.name, muni.dept, muni.lat, muni.lon, b.id)
             .run();
+        if (b.action === "update") {
+          const sets: string[] = [];
+          const binds: unknown[] = [];
+          if (NEED_TYPES.includes(b.need_type)) { sets.push("need_type=?"); binds.push(b.need_type); }
+          if ([1, 2, 3].includes(b.urgency)) { sets.push("urgency=?"); binds.push(b.urgency); }
+          if (typeof b.description === "string") { sets.push("description=?"); binds.push(b.description.slice(0, 2000) || null); }
+          if (Number.isInteger(b.households) && b.households > 0) { sets.push("households=?"); binds.push(b.households); }
+          if (typeof b.contact === "string") { sets.push("contact=?"); binds.push(b.contact.slice(0, 50) || null); }
+          if (typeof b.location_detail === "string") { sets.push("location_detail=?"); binds.push(b.location_detail.slice(0, 500) || null); }
+          if (sets.length)
+            await env.DB.prepare(`UPDATE requests SET ${sets.join(",")}, updated_at=datetime('now') WHERE id = ?`)
+              .bind(...binds, b.id)
+              .run();
+          return json({ ok: true });
+        }
         if (!actions[b.action]) return json({ error: "unknown action" }, 400);
         await env.DB.prepare("UPDATE requests SET status=?, updated_at=datetime('now') WHERE id = ?")
           .bind(actions[b.action], b.id)

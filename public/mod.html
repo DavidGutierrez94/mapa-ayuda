@@ -9,44 +9,192 @@
 <link href="/coss.css" rel="stylesheet" />
 <style>
   button { margin: .5rem .3rem 0 0; }
+  .tabs { display: flex; gap: .125rem; border-bottom: 1px solid var(--border); margin: 1rem 0 .75rem; flex-wrap: wrap; }
+  .tab { border: 0; background: none; box-shadow: none; border-radius: 0; margin: 0; padding: .5rem .75rem; font-size: .875rem; color: var(--muted-foreground); border-bottom: 2px solid transparent; }
+  .tab:hover { background: var(--muted); }
+  .tab.active { color: var(--foreground); font-weight: 600; border-bottom-color: var(--foreground); }
+  .toolbar { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; margin-bottom: .75rem; }
+  .guide { border: 1px solid var(--border); border-radius: var(--radius); padding: .75rem 1rem; margin-top: 1rem; background: var(--muted); font-size: .875rem; }
+  .guide summary { font-weight: 600; cursor: pointer; }
+  .guide ol { padding-left: 1.25rem; margin: .5rem 0; }
+  .guide li { margin: .35rem 0; }
+  .example { background: var(--background); border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px); padding: .6rem .8rem; margin-top: .5rem; }
+  .panel { border: 1px solid var(--border); border-radius: var(--radius); padding: .75rem 1rem; margin: .75rem 0; background: var(--background); }
+  .panel .row { display: flex; gap: .5rem; flex-wrap: wrap; }
+  .panel .row > * { flex: 1; min-width: 9rem; }
   input.muni { width: 11rem; display: inline-block; margin: .5rem .3rem 0 0; }
+  input.mergeid { width: 8rem; display: inline-block; margin: .5rem .3rem 0 0; }
 </style>
 </head>
 <body class="page">
 <h1>Cola de moderación</h1>
-<p style="display:flex;gap:.5rem;align-items:center"><input class="input input-inline" id="token" placeholder="Token de moderador" type="password" style="width:16rem" /> <button class="btn btn-primary" style="margin:0" onclick="save()">Entrar</button></p>
+<p style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap"><input class="input input-inline" id="token" placeholder="Token de moderador" type="password" style="width:16rem" /> <button class="btn btn-primary" style="margin:0" onclick="save()">Entrar</button>
+<button class="btn" style="margin:0" onclick="toggleCreate()">+ Nueva solicitud</button></p>
+
+<details class="guide">
+  <summary>Cómo validar una solicitud (guía para moderadores)</summary>
+  <ol>
+    <li><strong>Tome el caso más urgente primero.</strong> La pestaña Pendientes ordena por urgencia: rojo (vida en riesgo) antes que ámbar y azul.</li>
+    <li><strong>Lea la descripción completa.</strong> Una solicitud válida dice qué se necesita, dónde y para cuántas familias. Si es spam, publicidad o una prueba, use Rechazar (o Eliminar, desde la pestaña Rechazadas, si es basura evidente).</li>
+    <li><strong>Confirme el municipio.</strong> Si la tarjeta dice "sin municipio", escriba el código DANE en el campo de la tarjeta y quedará corregido al verificar. Ejemplos: Quibdó 27001, Istmina 27361, Condoto 27205, Tadó 27787.</li>
+    <li><strong>Corrija la clasificación si hace falta.</strong> La IA propone tipo de necesidad y urgencia, pero usted tiene la última palabra: use Editar para ajustar necesidad, urgencia, hogares, descripción o contacto.</li>
+    <li><strong>Busque duplicados.</strong> Use el buscador con el nombre del municipio. Si ya existe una solicitud verificada de la misma necesidad en el mismo lugar, escriba el número de ese caso en "Fusionar con #" (dentro de Editar): este reporte se suma como confirmación en vez de duplicar el mapa.</li>
+    <li><strong>Pulse Verificar.</strong> Solo entonces la solicitud aparece en el mapa público y en la vista de organizaciones. Nada es público sin este paso.</li>
+  </ol>
+  <div class="example">
+    <strong>Ejemplo.</strong> Llega: <em>"nesecitamos agua urgente en kibdo barrio la esperanza somos como 15 familias tel 3001234567"</em><br />
+    La IA la clasifica como <strong>agua, urgencia 2</strong>, pero no reconoce "kibdo" y queda <strong>sin municipio</strong>.
+    El moderador: (1) escribe 27001 en el campo DANE, (2) con Editar sube la urgencia a 1 si el contexto lo amerita y fija hogares en 15,
+    (3) busca "Quibdó" por si ya hay un caso de agua verificado; si lo hay, fusiona; si no, (4) pulsa Verificar.
+  </div>
+  <p style="margin:.5rem 0 0"><strong>Para trabajar en equipo:</strong> la lista se actualiza sola cada 30 segundos y un caso verificado o rechazado desaparece de Pendientes, así que dos moderadores pueden trabajar a la vez sin pisarse: cada quien toma casos distintos, idealmente repartidos por municipio o por urgencia.</p>
+</details>
+
+<div class="panel" id="create" hidden>
+  <strong>Nueva solicitud manual</strong> <span class="meta">(llamada, radio, en persona; entra como pendiente y se verifica igual que las demás)</span>
+  <div class="row" style="margin-top:.5rem">
+    <select class="input" id="c_need">
+      <option value="agua">Agua</option><option value="alimentos">Alimentos</option><option value="medico">Atención médica</option>
+      <option value="rescate">Rescate</option><option value="techo">Techo / albergue</option><option value="otro">Otra</option>
+    </select>
+    <select class="input" id="c_urgency">
+      <option value="1">Urgencia 1: vida en riesgo</option><option value="2" selected>Urgencia 2: horas</option><option value="3">Urgencia 3: días</option>
+    </select>
+    <input class="input" id="c_muni" placeholder="Municipio (nombre o código DANE)" />
+    <input class="input" id="c_households" type="number" min="1" value="1" title="Hogares" />
+  </div>
+  <div class="row" style="margin-top:.5rem">
+    <input class="input" id="c_contact" placeholder="Teléfono de contacto (privado)" />
+    <input class="input" id="c_detail" placeholder="Vereda / barrio / dirección (privado)" />
+  </div>
+  <textarea class="input" id="c_desc" rows="2" placeholder="Descripción de la situación" style="margin-top:.5rem"></textarea>
+  <button class="btn btn-primary" onclick="createReq()">Guardar</button>
+  <span class="err" id="c_err"></span>
+</div>
+
+<div class="tabs" id="tabs"></div>
+<div class="toolbar">
+  <input class="input input-inline" id="q" placeholder="Buscar: #id, texto, municipio, teléfono" style="width:18rem" />
+  <select class="input input-inline" id="f_need">
+    <option value="">Toda necesidad</option>
+    <option value="agua">Agua</option><option value="alimentos">Alimentos</option><option value="medico">Médica</option>
+    <option value="rescate">Rescate</option><option value="techo">Techo</option><option value="otro">Otra</option>
+  </select>
+  <select class="input input-inline" id="f_urgency">
+    <option value="">Toda urgencia</option><option value="1">Urgencia 1</option><option value="2">Urgencia 2</option><option value="3">Urgencia 3</option>
+  </select>
+</div>
 <div id="list"></div>
+
 <script>
 const $ = (s) => document.querySelector(s);
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const TABS = [["pending", "Pendientes"], ["verified", "Verificadas"], ["attending", "En atención"], ["resolved", "Resueltas"], ["rejected", "Rechazadas"]];
+let status = "pending";
+
 function save() { localStorage.modToken = $("#token").value; load(); }
+function toggleCreate() { $("#create").hidden = !$("#create").hidden; }
 async function api(path, opts = {}) {
   const res = await fetch(path, { ...opts, headers: { "content-type": "application/json", authorization: "Bearer " + (localStorage.modToken ?? ""), ...opts.headers } });
   if (res.status === 401) { $("#list").innerHTML = "<p>Token inválido.</p>"; throw new Error("401"); }
   return res.json();
 }
-async function act(id, action, muniInputId) {
-  const muni_code = muniInputId ? $("#" + muniInputId).value.trim() : "";
-  await api("/api/mod/action", { method: "POST", body: JSON.stringify({ id, action, ...(muni_code && { muni_code }) }) });
+async function act(id, action, extra = {}) {
+  if (action === "delete" && !confirm(`¿Eliminar definitivamente el caso #${id}? Esta acción no se puede deshacer.`)) return;
+  await api("/api/mod/action", { method: "POST", body: JSON.stringify({ id, action, ...extra }) });
   load();
 }
-async function load() {
-  if (!localStorage.modToken) return;
-  const rows = await api("/api/mod/queue");
-  $("#list").innerHTML = rows.length === 0 ? "<p>✔ Cola vacía.</p>" : rows.map(r => `
-    <div class="card">
-      <strong>#${r.id} · ${r.need_type} · urgencia ${r.urgency}</strong>
-      <span class="meta"> · ${r.channel}${r.source_org ? " (" + r.source_org + ")" : ""} · ${r.created_at}</span><br>
-      ${r.description ?? ""}<br>
-      <span class="meta">📍 ${r.muni_name ?? "⚠ sin municipio"} ${r.location_raw ? "· dijo: “" + r.location_raw + "”" : ""} ${r.location_detail ? "· detalle: " + r.location_detail : ""}
-      · 👥 ${r.households} hogares · +${r.confirmations} confirmaciones · ☎ ${r.contact ?? "sin contacto"}</span><br>
-      <input class="input muni" id="m${r.id}" placeholder="código DANE si falta" value="${r.muni_code ?? ""}" />
-      <button class="btn btn-success" onclick="act(${r.id},'verify','m${r.id}')">Verificar</button>
-      <button class="btn btn-destructive" onclick="act(${r.id},'reject')">Rechazar</button>
-      <button class="btn" onclick="act(${r.id},'resolve')">Resuelta</button>
-    </div>`).join("");
+function verifyWithMuni(id) {
+  const muni_code = $("#m" + id)?.value.trim();
+  act(id, "verify", muni_code ? { muni_code } : {});
 }
+async function saveEdit(id) {
+  const g = (f) => $(`#e${id} [name=${f}]`).value;
+  const mergeId = g("merge").trim();
+  if (mergeId) { await act(id, "merge", { target_id: +mergeId }); return; }
+  await act(id, "update", {
+    need_type: g("need_type"), urgency: +g("urgency"),
+    description: g("description"), households: +g("households") || 1,
+    contact: g("contact"), location_detail: g("location_detail"),
+    ...(g("muni_code").trim() && { muni_code: g("muni_code").trim() }),
+  });
+}
+async function createReq() {
+  const muni = $("#c_muni").value.trim();
+  const body = {
+    need_type: $("#c_need").value, urgency: +$("#c_urgency").value,
+    description: $("#c_desc").value, households: +$("#c_households").value || 1,
+    contact: $("#c_contact").value, location_detail: $("#c_detail").value,
+    ...(/^\d{5}$/.test(muni) ? { muni_code: muni } : { muni_name: muni }),
+  };
+  const res = await api("/api/mod/create", { method: "POST", body: JSON.stringify(body) });
+  if (res.error) { $("#c_err").textContent = res.error; return; }
+  $("#create").hidden = true; $("#c_desc").value = ""; $("#c_muni").value = ""; $("#c_contact").value = ""; $("#c_detail").value = "";
+  status = "pending"; load();
+}
+
+const ACTIONS = {
+  pending: (r) => `<input class="input muni" id="m${r.id}" placeholder="código DANE si falta" value="${esc(r.muni_code)}" />
+    <button class="btn btn-success" onclick="verifyWithMuni(${r.id})">Verificar</button>
+    <button class="btn btn-destructive" onclick="act(${r.id},'reject')">Rechazar</button>`,
+  verified: (r) => `<button class="btn btn-warning" onclick="act(${r.id},'attend')">Atender</button>
+    <button class="btn" onclick="act(${r.id},'resolve')">Resuelta</button>
+    <button class="btn btn-destructive" onclick="act(${r.id},'reject')">Rechazar</button>`,
+  attending: (r) => `<button class="btn btn-success" onclick="act(${r.id},'resolve')">Resuelta</button>`,
+  resolved: (r) => `<button class="btn" onclick="act(${r.id},'verify')">Reabrir</button>`,
+  rejected: (r) => `<button class="btn" onclick="act(${r.id},'verify')">Restaurar y verificar</button>
+    <button class="btn btn-destructive" onclick="act(${r.id},'delete')">Eliminar</button>`,
+};
+
+const card = (r) => `
+  <div class="card">
+    <strong>#${r.id} · ${esc(r.need_type)} · urgencia ${r.urgency}</strong>
+    <span class="meta"> · ${esc(r.channel)}${r.source_org ? " (" + esc(r.source_org) + ")" : ""} · ${esc(r.created_at)}</span><br>
+    ${esc(r.description)}<br>
+    <span class="meta">📍 ${esc(r.muni_name) || "⚠ sin municipio"} ${r.location_raw ? "· dijo: “" + esc(r.location_raw) + "”" : ""} ${r.location_detail ? "· detalle: " + esc(r.location_detail) : ""}
+    · 👥 ${r.households} hogares · +${r.confirmations} confirmaciones · ☎ ${esc(r.contact) || "sin contacto"}</span><br>
+    ${ACTIONS[r.status]?.(r) ?? ""}
+    <button class="btn" onclick="document.getElementById('e${r.id}').hidden ^= 1">Editar</button>
+    <div class="panel" id="e${r.id}" hidden>
+      <div class="row">
+        <select class="input" name="need_type">
+          ${["agua", "alimentos", "medico", "rescate", "techo", "otro"].map((n) => `<option ${n === r.need_type ? "selected" : ""}>${n}</option>`).join("")}
+        </select>
+        <select class="input" name="urgency">
+          ${[1, 2, 3].map((u) => `<option value="${u}" ${u === r.urgency ? "selected" : ""}>Urgencia ${u}</option>`).join("")}
+        </select>
+        <input class="input" name="households" type="number" min="1" value="${r.households}" title="Hogares" />
+        <input class="input" name="muni_code" placeholder="código DANE" value="${esc(r.muni_code)}" />
+      </div>
+      <div class="row" style="margin-top:.5rem">
+        <input class="input" name="contact" placeholder="Teléfono (privado)" value="${esc(r.contact)}" />
+        <input class="input" name="location_detail" placeholder="Detalle de ubicación (privado)" value="${esc(r.location_detail)}" />
+      </div>
+      <textarea class="input" name="description" rows="2" style="margin-top:.5rem">${esc(r.description)}</textarea>
+      <input class="input mergeid" name="merge" placeholder="Fusionar con #" />
+      <button class="btn btn-primary" onclick="saveEdit(${r.id})">Guardar</button>
+    </div>
+  </div>`;
+
+function renderTabs() {
+  $("#tabs").innerHTML = TABS.map(([s, label]) =>
+    `<button class="tab ${s === status ? "active" : ""}" onclick="status='${s}';load()">${label}</button>`).join("");
+}
+async function load() {
+  if (!localStorage.modToken) { renderTabs(); return; }
+  renderTabs();
+  const qs = new URLSearchParams({ status });
+  if ($("#q").value.trim()) qs.set("q", $("#q").value.trim());
+  if ($("#f_need").value) qs.set("need", $("#f_need").value);
+  if ($("#f_urgency").value) qs.set("urgency", $("#f_urgency").value);
+  const rows = await api("/api/mod/requests?" + qs);
+  $("#list").innerHTML = rows.length === 0 ? "<p class='meta'>Sin casos en esta vista.</p>" : rows.map(card).join("");
+}
+$("#q").oninput = () => { clearTimeout(window._t); window._t = setTimeout(load, 300); };
+$("#f_need").onchange = load;
+$("#f_urgency").onchange = load;
 load();
-setInterval(load, 30_000);
+setInterval(() => { if (document.querySelector(".panel:not([hidden])") === null) load(); }, 30_000);
 </script>
 </body>
 </html>

@@ -21,6 +21,7 @@
 <div id="list"></div>
 <script>
 const $ = (s) => document.querySelector(s);
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 function save() { localStorage.responderToken = $("#token").value; load(); }
 async function api(path, opts = {}) {
   const res = await fetch(path, { ...opts, headers: { "content-type": "application/json", authorization: "Bearer " + (localStorage.responderToken ?? ""), ...opts.headers } });
@@ -33,12 +34,12 @@ async function act(id, action) {
 }
 const card = (r) => `
   <div class="card u${r.urgency}">
-    <strong>#${r.id} · ${r.need_type} · urgencia ${r.urgency}</strong>
-    <span class="meta"> · ${r.channel}${r.source_org ? " (" + r.source_org + ")" : ""} · ${r.created_at}</span><br>
-    ${r.description ?? ""}<br>
-    <span class="meta">📍 ${r.muni_name ?? "sin municipio"}${r.location_detail ? " · " + r.location_detail : ""}${r.location_raw ? " · dijo: “" + r.location_raw + "”" : ""}
+    <strong>#${r.id} · ${esc(r.need_type)} · urgencia ${r.urgency}</strong>
+    <span class="meta"> · ${esc(r.channel)}${r.source_org ? " (" + esc(r.source_org) + ")" : ""} · ${esc(r.created_at)}</span><br>
+    ${esc(r.description)}<br>
+    <span class="meta">📍 ${esc(r.muni_name) || "sin municipio"}${r.location_detail ? " · " + esc(r.location_detail) : ""}${r.location_raw ? " · dijo: “" + esc(r.location_raw) + "”" : ""}
     · 👥 ${r.households} hogares · +${r.confirmations} confirmaciones</span><br>
-    ${r.contact ? `☎ <a class="contact" href="tel:${r.contact}">${r.contact}</a><a class="contact" href="https://wa.me/${String(r.contact).replace(/\D/g, "")}" target="_blank">WhatsApp</a>` : `<span class="meta">sin contacto</span>`}
+    ${r.contact ? `☎ <a class="contact" href="tel:${esc(r.contact)}">${esc(r.contact)}</a><a class="contact" href="https://wa.me/${String(r.contact).replace(/\D/g, "")}" target="_blank">WhatsApp</a>` : `<span class="meta">sin contacto</span>`}
     ${r.status === "verified"
       ? `<button class="btn btn-warning" onclick="act(${r.id},'attend')">Tomar el caso</button>`
       : `<button class="btn btn-success" onclick="act(${r.id},'resolve')">Marcar resuelto</button>`}

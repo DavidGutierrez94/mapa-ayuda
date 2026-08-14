@@ -212,6 +212,60 @@ describe("PII boundary", () => {
   });
 });
 
+describe("mod dashboard: CRUD, search, tabs", () => {
+  const list = async (qs: string) =>
+    (await (
+      await SELF.fetch(`https://x/api/mod/requests?${qs}`, { headers: { authorization: "Bearer test-mod-token" } })
+    ).json()) as any[];
+  const create = (body: object) =>
+    SELF.fetch("https://x/api/mod/create", {
+      method: "POST",
+      headers: { authorization: "Bearer test-mod-token", "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  it("manual create lands as pending (human gate applies to moderators too)", async () => {
+    const res = await create({ need_type: "medico", urgency: 1, muni_name: "Quibdó", description: "llamada telefónica: heridos", households: 3, contact: "573000000001" });
+    expect(res.status).toBe(201);
+    expect((await feed()).rows).toHaveLength(0);
+    const [req] = await list("status=pending");
+    expect(req).toMatchObject({ channel: "manual", muni_code: "27001", need_type: "medico" });
+  });
+
+  it("listing filters by status, need and urgency; search matches text, id and municipality", async () => {
+    await create({ need_type: "agua", urgency: 2, muni_name: "Quibdó", description: "falta agua" });
+    await create({ need_type: "techo", urgency: 1, muni_name: "Istmina", description: "carpas urgentes" });
+    expect(await list("status=pending")).toHaveLength(2);
+    expect((await list("status=pending&need=techo"))[0].muni_name).toBe("Istmina");
+    expect(await list("status=pending&urgency=2")).toHaveLength(1);
+    expect((await list("status=pending&q=carpas"))[0].need_type).toBe("techo");
+    expect(await list("status=pending&q=Quibdó")).toHaveLength(1);
+    expect(await list("status=verified")).toHaveLength(0);
+    const [req] = await list("status=pending&need=agua");
+    await modAction({ id: req.id, action: "verify" });
+    expect(await list("status=verified")).toHaveLength(1);
+    expect((await list(`status=pending&q=${req.id}`))).toHaveLength(0); // id search is status-scoped
+  });
+
+  it("update action edits fields without touching status", async () => {
+    await create({ need_type: "otro", urgency: 3, muni_name: "Quibdó", description: "texto confuso" });
+    const [req] = await list("status=pending");
+    await modAction({ id: req.id, action: "update", need_type: "rescate", urgency: 1, households: 7, description: "personas atrapadas", contact: "573000000009" });
+    const [edited] = await list("status=pending");
+    expect(edited).toMatchObject({ need_type: "rescate", urgency: 1, households: 7, description: "personas atrapadas", contact: "573000000009", status: "pending" });
+  });
+
+  it("delete removes the request and its confirmations", async () => {
+    await create({ need_type: "agua", urgency: 2, muni_name: "Quibdó" });
+    const [req] = await list("status=pending");
+    await env.DB.prepare("INSERT INTO confirmations (request_id, phone) VALUES (?, '57300xyz')").bind(req.id).run();
+    await modAction({ id: req.id, action: "delete" });
+    expect(await list("status=pending")).toHaveLength(0);
+    const c = await env.DB.prepare("SELECT COUNT(*) n FROM confirmations").first<any>();
+    expect(c.n).toBe(0);
+  });
+});
+
 describe("responder case management", () => {
   const respAction = (body: object, token = "test-responder-token") =>
     SELF.fetch("https://x/api/responder/action", {
