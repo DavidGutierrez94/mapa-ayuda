@@ -15,14 +15,14 @@ const json = (data: unknown, status = 200, headers: Record<string, string> = {})
 const bearer = (req: Request) =>
   req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? null;
 
-const NEED_TYPES = ["agua", "alimentos", "medico", "rescate", "techo", "otro"];
+const NEED_TYPES = ["agua", "alimentos", "medico", "rescate", "techo", "higiene", "infancia", "otro"];
 const PUBLIC_STATUSES = ["verified", "attending", "resolved"];
 
 /** Hand-rolled mirror of schema/help-request.schema.json (v1). Returns error list. */
 export function validateHelpRequest(b: any): string[] {
   const errs: string[] = [];
   if (typeof b !== "object" || b === null) return ["body must be a JSON object"];
-  const allowed = ["need_type", "urgency", "description", "location", "households", "contact", "reported_at"];
+  const allowed = ["need_type", "urgency", "description", "location", "households", "contact", "quantity", "reported_at"];
   for (const k of Object.keys(b)) if (!allowed.includes(k)) errs.push(`unknown field: ${k}`);
   if (!NEED_TYPES.includes(b.need_type)) errs.push(`need_type must be one of ${NEED_TYPES.join("|")}`);
   if (b.urgency !== undefined && ![1, 2, 3].includes(b.urgency)) errs.push("urgency must be 1, 2 or 3");
@@ -158,6 +158,7 @@ export default {
         people_count: Number.isInteger(b.people_count) && b.people_count > 0 ? b.people_count : null,
         vulnerable: vulnerable.length ? JSON.stringify(vulnerable) : null,
         access_note: b.access_note ? String(b.access_note).slice(0, 300) : null,
+        quantity: b.quantity ? String(b.quantity).slice(0, 100) : null,
         precise_lat: hasGps ? b.precise_lat : null,
         precise_lon: hasGps ? b.precise_lon : null,
         ip_city: ipCity,
@@ -216,6 +217,7 @@ export default {
         contact: b.contact ?? null,
         channel: "api",
         source_org: org,
+        quantity: b.quantity ?? null,
       });
       return json({ ok: true, id }, 201);
     }
@@ -495,6 +497,7 @@ export default {
               location_detail: b.location_detail ? String(b.location_detail).slice(0, 500) : null,
               households: Number.isInteger(b.households) && b.households > 0 ? b.households : 1,
               contact: b.contact ? String(b.contact).slice(0, 50) : null,
+              quantity: b.quantity ? String(b.quantity).slice(0, 100) : null,
               channel: "manual",
             }),
           );
@@ -545,6 +548,7 @@ export default {
           if (Number.isInteger(b.households) && b.households > 0) { sets.push("households=?"); binds.push(b.households); }
           if (typeof b.contact === "string") { sets.push("contact=?"); binds.push(b.contact.slice(0, 50) || null); }
           if (typeof b.location_detail === "string") { sets.push("location_detail=?"); binds.push(b.location_detail.slice(0, 500) || null); }
+          if (typeof b.quantity === "string") { sets.push("quantity=?"); binds.push(b.quantity.slice(0, 100) || null); }
           if (sets.length)
             await env.DB.prepare(`UPDATE requests SET ${sets.join(",")}, updated_at=datetime('now') WHERE id = ?`)
               .bind(...binds, b.id)

@@ -32,6 +32,7 @@ export interface NewRequest {
   precise_lon?: number | null;
   ip_city?: string | null; // PRIVATE: Cloudflare-geolocated city, moderation signal only
   ip_match?: number | null; // 1 = IP city matches claimed muni, 0 = mismatch, null = unknown
+  quantity?: string | null; // free text: "20 mercados"
 }
 
 export async function createRequest(env: Env, r: NewRequest): Promise<number> {
@@ -39,8 +40,8 @@ export async function createRequest(env: Env, r: NewRequest): Promise<number> {
     `INSERT INTO requests
      (need_type, urgency, description, muni_code, muni_name, dept, lat, lon,
       location_raw, location_detail, households, contact, channel, source_org, leader_id,
-      reporter_name, people_count, vulnerable, access_note, precise_lat, precise_lon, ip_city, ip_match)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      reporter_name, people_count, vulnerable, access_note, precise_lat, precise_lon, ip_city, ip_match, quantity)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   )
     .bind(
       r.need_type,
@@ -66,6 +67,7 @@ export async function createRequest(env: Env, r: NewRequest): Promise<number> {
       r.precise_lon ?? null,
       r.ip_city ?? null,
       r.ip_match ?? null,
+      r.quantity ?? null,
     )
     .run();
   return res.meta.last_row_id as number;
@@ -97,6 +99,8 @@ const NEED_LABEL: Record<string, string> = {
   medico: "atención médica",
   rescate: "rescate",
   techo: "techo/albergue",
+  higiene: "kits de higiene y aseo",
+  infancia: "artículos para niños y bebés",
   otro: "ayuda",
 };
 
@@ -141,6 +145,7 @@ export async function handleInbound(env: Env, r: RawReport): Promise<PipelineRep
         households: p.households,
         contact: r.sender,
         channel: r.channel,
+        quantity: p.quantity ?? null,
       });
       return {
         kind: "created",
@@ -180,6 +185,7 @@ export async function handleInbound(env: Env, r: RawReport): Promise<PipelineRep
     households: t.households,
     contact: r.sender,
     channel: r.channel,
+    quantity: t.quantity ?? null,
   });
   return {
     kind: "created",

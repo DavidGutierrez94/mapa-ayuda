@@ -34,6 +34,8 @@
       <option value="medico">Atención médica</option>
       <option value="rescate">Rescate</option>
       <option value="techo">Techo / albergue</option>
+      <option value="higiene">Higiene / aseo</option>
+      <option value="infancia">Niños y bebés</option>
       <option value="otro">Otras</option>
     </select>
   </label>
@@ -43,8 +45,8 @@
 </div>
 <div id="map"></div>
 <script>
-const COLORS = { agua:"#1976d2", alimentos:"#f9a825", medico:"#d32f2f", rescate:"#7b1fa2", techo:"#5d4037", otro:"#616161" };
-const LABELS = { agua:"Agua", alimentos:"Alimentos", medico:"Médica", rescate:"Rescate", techo:"Techo", otro:"Otras" };
+const COLORS = { agua:"#1976d2", alimentos:"#f9a825", medico:"#d32f2f", rescate:"#7b1fa2", techo:"#5d4037", higiene:"#00838f", infancia:"#c2185b", otro:"#616161" };
+const LABELS = { agua:"Agua", alimentos:"Alimentos", medico:"Médica", rescate:"Rescate", techo:"Techo", higiene:"Higiene", infancia:"Niños", otro:"Otras" };
 document.getElementById("legend").innerHTML = Object.entries(LABELS)
   .map(([k,v]) => `<span style="color:${COLORS[k]}">${v}</span>`).join("");
 

@@ -245,3 +245,27 @@ describe("reporting stats (PRD v2 P4)", () => {
     expect((await SELF.fetch("https://x/api/mod/stats")).status).toBe(401);
   });
 });
+
+describe("new categories + quantity", () => {
+  it("higiene/infancia accepted end to end with quantity, editable by mods", async () => {
+    const res = await webIntake({ need_types: ["higiene", "infancia"], muni_name: "Quibdó", quantity: "30 kits de aseo" });
+    expect(res.status).toBe(201);
+    const rows = (await (await call("/api/mod/requests?status=pending&need=higiene", "test-mod-token")).json()) as any[];
+    expect(rows[0]).toMatchObject({ need_type: "higiene", quantity: "30 kits de aseo" });
+
+    await call("/api/mod/action", "test-mod-token", { id: rows[0].id, action: "update", quantity: "50 kits de aseo" });
+    const edited = (await (await call("/api/mod/requests?status=pending&need=higiene", "test-mod-token")).json()) as any[];
+    expect(edited[0].quantity).toBe("50 kits de aseo");
+  });
+
+  it("org push accepts new categories and quantity through the open schema", async () => {
+    const res = await SELF.fetch("https://x/api/requests", {
+      method: "POST",
+      headers: { authorization: "Bearer test-org-token", "content-type": "application/json" },
+      body: JSON.stringify({ need_type: "infancia", location: { muni_name: "Istmina" }, quantity: "200 pañales", households: 10 }),
+    });
+    expect(res.status).toBe(201);
+    const rows = (await (await call("/api/mod/requests?status=pending&need=infancia", "test-mod-token")).json()) as any[];
+    expect(rows[0]).toMatchObject({ quantity: "200 pañales", source_org: "CruzRoja" });
+  });
+});

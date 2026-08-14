@@ -8,7 +8,7 @@
   "additionalProperties": false,
   "properties": {
     "need_type": {
-      "enum": ["agua", "alimentos", "medico", "rescate", "techo", "otro"]
+      "enum": ["agua", "alimentos", "medico", "rescate", "techo", "higiene", "infancia", "otro"]
     },
     "urgency": {
       "type": "integer",
@@ -33,6 +33,7 @@
       }
     },
     "households": { "type": "integer", "minimum": 1 },
+    "quantity": { "type": "string", "maxLength": 100, "description": "Concrete quantity needed, free text: \"20 mercados\"" },
     "contact": { "type": "string", "description": "Reporter phone — shown only to accredited responders" },
     "reported_at": { "type": "string", "format": "date-time" }
   }

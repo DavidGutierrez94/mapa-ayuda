@@ -38,6 +38,8 @@
     <label class="check"><input type="checkbox" name="need_types" value="medico" /> Atención médica</label>
     <label class="check"><input type="checkbox" name="need_types" value="rescate" /> Rescate</label>
     <label class="check"><input type="checkbox" name="need_types" value="techo" /> Techo / albergue</label>
+    <label class="check"><input type="checkbox" name="need_types" value="higiene" /> Higiene / aseo</label>
+    <label class="check"><input type="checkbox" name="need_types" value="infancia" /> Niños y bebés</label>
     <label class="check"><input type="checkbox" name="need_types" value="otro" /> Otra</label>
   </div>
   <label class="label">¿Qué tan urgente?
@@ -46,6 +48,9 @@
       <option value="2" selected>Urgente (horas)</option>
       <option value="3">Necesidad sostenida (días)</option>
     </select>
+  </label>
+  <label class="label">¿Qué cantidad se necesita? <span class="hint" style="display:inline">(opcional)</span>
+    <input class="input" name="quantity" maxlength="100" placeholder="Ej: 20 mercados, 100 litros de agua, 30 kits de aseo" />
   </label>
   <label class="label">Describe la situación
     <textarea class="input" name="description" rows="3" maxlength="2000" placeholder="Qué pasó, qué se necesita y cualquier detalle útil"></textarea>

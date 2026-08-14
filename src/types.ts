@@ -38,6 +38,7 @@ export interface TriagedReport {
   description: string;
   location_raw: string | null;
   households: number;
+  quantity?: string | null;
 }
 
 export interface PipelineReply {

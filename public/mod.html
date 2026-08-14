@@ -70,6 +70,8 @@
     <label class="check"><input type="checkbox" value="medico" /> Atención médica</label>
     <label class="check"><input type="checkbox" value="rescate" /> Rescate</label>
     <label class="check"><input type="checkbox" value="techo" /> Techo / albergue</label>
+    <label class="check"><input type="checkbox" value="higiene" /> Higiene / aseo</label>
+    <label class="check"><input type="checkbox" value="infancia" /> Niños y bebés</label>
     <label class="check"><input type="checkbox" value="otro" /> Otra</label>
   </div>
   <div class="row" style="margin-top:.5rem">
@@ -80,6 +82,7 @@
     <input class="input" id="c_households" type="number" min="1" value="1" title="Hogares" />
   </div>
   <div class="row" style="margin-top:.5rem">
+    <input class="input" id="c_quantity" placeholder="Cantidad (ej: 20 mercados)" />
     <input class="input" id="c_contact" placeholder="Teléfono de contacto (privado)" />
     <input class="input" id="c_detail" placeholder="Vereda / barrio / dirección (privado)" />
   </div>
@@ -95,7 +98,8 @@
   <select class="input input-inline" id="f_need">
     <option value="">Toda necesidad</option>
     <option value="agua">Agua</option><option value="alimentos">Alimentos</option><option value="medico">Médica</option>
-    <option value="rescate">Rescate</option><option value="techo">Techo</option><option value="otro">Otra</option>
+    <option value="rescate">Rescate</option><option value="techo">Techo</option>
+    <option value="higiene">Higiene</option><option value="infancia">Niños y bebés</option><option value="otro">Otra</option>
   </select>
   <select class="input input-inline" id="f_urgency">
     <option value="">Toda urgencia</option><option value="1">Urgencia 1</option><option value="2">Urgencia 2</option><option value="3">Urgencia 3</option>
@@ -149,7 +153,7 @@ async function saveEdit(id) {
   await act(id, "update", {
     need_type: g("need_type"), urgency: +g("urgency"),
     description: g("description"), households: +g("households") || 1,
-    contact: g("contact"), location_detail: g("location_detail"),
+    contact: g("contact"), location_detail: g("location_detail"), quantity: g("quantity"),
     ...(resolveMuni(g("muni_code")) && { muni_code: resolveMuni(g("muni_code")) }),
   });
 }
@@ -161,7 +165,7 @@ async function createReq() {
   const body = {
     need_types, urgency: +$("#c_urgency").value,
     description: $("#c_desc").value, households: +$("#c_households").value || 1,
-    contact: $("#c_contact").value, location_detail: $("#c_detail").value,
+    contact: $("#c_contact").value, location_detail: $("#c_detail").value, quantity: $("#c_quantity").value,
     ...(code ? { muni_code: code } : { muni_name: muni }),
   };
   const res = await api("/api/mod/create", { method: "POST", body: JSON.stringify(body) });
@@ -189,6 +193,7 @@ const v2meta = (r) => {
   const parts = [];
   if (r.reporter_name) parts.push("Reporta: " + esc(r.reporter_name));
   if (r.people_count) parts.push("~" + r.people_count + " personas");
+  if (r.quantity) parts.push("cantidad: " + esc(r.quantity));
   try { const v = JSON.parse(r.vulnerable ?? "null"); if (v?.length) parts.push("⚠ " + v.map((k) => VULN[k] ?? k).join(", ")); } catch {}
   if (r.access_note) parts.push("acceso: " + esc(r.access_note));
   if (r.precise_lat != null) parts.push(`<a href="https://www.openstreetmap.org/?mlat=${r.precise_lat}&mlon=${r.precise_lon}#map=16/${r.precise_lat}/${r.precise_lon}" target="_blank">📍 GPS exacto</a>`);
@@ -210,7 +215,7 @@ const card = (r) => `
     <div class="panel" id="e${r.id}" hidden>
       <div class="row">
         <select class="input" name="need_type">
-          ${["agua", "alimentos", "medico", "rescate", "techo", "otro"].map((n) => `<option ${n === r.need_type ? "selected" : ""}>${n}</option>`).join("")}
+          ${["agua", "alimentos", "medico", "rescate", "techo", "higiene", "infancia", "otro"].map((n) => `<option ${n === r.need_type ? "selected" : ""}>${n}</option>`).join("")}
         </select>
         <select class="input" name="urgency">
           ${[1, 2, 3].map((u) => `<option value="${u}" ${u === r.urgency ? "selected" : ""}>Urgencia ${u}</option>`).join("")}
@@ -219,6 +224,7 @@ const card = (r) => `
         <input class="input" name="muni_code" list="munis" placeholder="Municipio (escriba para buscar)" value="${esc(r.muni_code)}" />
       </div>
       <div class="row" style="margin-top:.5rem">
+        <input class="input" name="quantity" placeholder="Cantidad (ej: 20 mercados)" value="${esc(r.quantity)}" />
         <input class="input" name="contact" placeholder="Teléfono (privado)" value="${esc(r.contact)}" />
         <input class="input" name="location_detail" placeholder="Detalle de ubicación (privado)" value="${esc(r.location_detail)}" />
       </div>

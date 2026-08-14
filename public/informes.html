@@ -48,7 +48,7 @@ const $ = (s) => document.querySelector(s);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const token = () => localStorage.informesToken || localStorage.modToken || localStorage.adminToken || localStorage.responderToken || "";
 function save() { localStorage.informesToken = $("#token").value; load(); }
-const NEEDS = { agua: "Agua", alimentos: "Alimentos", medico: "Atención médica", rescate: "Rescate", techo: "Techo / albergue", otro: "Otras" };
+const NEEDS = { agua: "Agua", alimentos: "Alimentos", medico: "Atención médica", rescate: "Rescate", techo: "Techo / albergue", higiene: "Higiene / aseo", infancia: "Niños y bebés", otro: "Otras" };
 const STATUS = { pending: "Pendientes", verified: "Verificadas", attending: "En atención", resolved: "Resueltas", rejected: "Rechazadas" };
 const fmtH = (h) => (h == null ? "—" : h < 1 ? Math.round(h * 60) + " min" : h.toFixed(1) + " h");
 

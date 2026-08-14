@@ -338,3 +338,12 @@ describe("ipMatch signal", () => {
     expect(ipMatch("Quibdó", null)).toBeNull();
   });
 });
+
+describe("triage quantity extraction", () => {
+  it("quantity from the LLM lands on the request", async () => {
+    mockLLM({ need_type: "higiene", urgency: 2, description: "kits de aseo", location_raw: "Quibdó", households: 8, quantity: "40 kits" });
+    await kapsoWebhook({ id: "q1", from: "5730077", text: "necesitamos 40 kits de aseo en quibdó para 8 familias" });
+    const [req] = await modQueue();
+    expect(req).toMatchObject({ need_type: "higiene", quantity: "40 kits", muni_code: "27001" });
+  });
+});
