@@ -1,6 +1,7 @@
 import type { Env, PipelineReply } from "./types";
 import { handleInbound, createRequest, storeRaw } from "./pipeline";
 import { byCode, byName } from "./gazetteer";
+import { resolveActor, logAction, sha256hex, RANK, type Actor } from "./auth";
 import * as kapso from "./adapters/kapso";
 import * as smsgate from "./adapters/smsgate";
 
@@ -226,9 +227,55 @@ export default {
       return json({ turnstile_sitekey: env.TURNSTILE_SITEKEY ?? null });
     }
 
+    // ── Admin: users + audit log ──
+    if (path.startsWith("/api/admin/")) {
+      const actor = await resolveActor(env, bearer(request));
+      if (!actor) return json({ error: "unauthorized" }, 401);
+      if (RANK[actor.role] < RANK.admin) return json({ error: "forbidden" }, 403);
+      if (request.method === "GET" && path === "/api/admin/users") {
+        const rows = await env.DB.prepare(
+          "SELECT id, name, role, active, created_by, created_at FROM users ORDER BY id DESC",
+        ).all();
+        return json(rows.results);
+      }
+      if (request.method === "POST" && path === "/api/admin/users") {
+        const b = (await request.json().catch(() => null)) as any;
+        if (!b?.name || !["admin", "mod", "responder"].includes(b.role))
+          return json({ error: "name and role (admin|mod|responder) required" }, 422);
+        const token = `${b.role}_${crypto.randomUUID().replace(/-/g, "")}`;
+        const res = await env.DB.prepare("INSERT INTO users (name, role, token_hash, created_by) VALUES (?,?,?,?)")
+          .bind(String(b.name).slice(0, 100), b.role, await sha256hex(token), actor.name)
+          .run();
+        await logAction(env, actor, "user_create", null, { user_id: res.meta.last_row_id, name: b.name, role: b.role });
+        return json({ ok: true, id: res.meta.last_row_id, token }, 201); // token is shown exactly once
+      }
+      if (request.method === "POST" && path === "/api/admin/users/revoke") {
+        const b = (await request.json().catch(() => null)) as any;
+        if (!b?.id) return json({ error: "id required" }, 400);
+        await env.DB.prepare("UPDATE users SET active = 0 WHERE id = ?").bind(b.id).run();
+        await logAction(env, actor, "user_revoke", null, { user_id: b.id });
+        return json({ ok: true });
+      }
+      if (request.method === "GET" && path === "/api/admin/log") {
+        const conds: string[] = [];
+        const binds: unknown[] = [];
+        const rid = url.searchParams.get("request_id");
+        if (rid) { conds.push("request_id = ?"); binds.push(+rid); }
+        const who = url.searchParams.get("actor");
+        if (who) { conds.push("actor LIKE ?"); binds.push(`%${who}%`); }
+        const rows = await env.DB.prepare(
+          `SELECT * FROM mod_log ${conds.length ? "WHERE " + conds.join(" AND ") : ""} ORDER BY id DESC LIMIT 300`,
+        ).bind(...binds).all();
+        return json(rows.results);
+      }
+      return json({ error: "not found" }, 404);
+    }
+
     // ── Moderation ──
     if (path.startsWith("/api/mod/")) {
-      if (!env.MOD_TOKEN || bearer(request) !== env.MOD_TOKEN) return json({ error: "unauthorized" }, 401);
+      const actor = await resolveActor(env, bearer(request));
+      if (!actor) return json({ error: "unauthorized" }, 401);
+      if (RANK[actor.role] < RANK.mod) return json({ error: "forbidden" }, 403);
       if (request.method === "GET" && path === "/api/mod/queue") {
         const rows = await env.DB.prepare(
           `SELECT r.*, IFNULL(c.cnt,0) AS confirmations FROM requests r
@@ -282,6 +329,7 @@ export default {
               channel: "manual",
             }),
           );
+        await logAction(env, actor, "create", ids[0], { ids, needs });
         return json({ ok: true, id: ids[0], ids }, 201);
       }
       if (request.method === "POST" && path === "/api/mod/action") {
@@ -298,6 +346,7 @@ export default {
           await env.DB.prepare("DELETE FROM confirmations WHERE request_id = ?").bind(b.id).run();
           await env.DB.prepare("DELETE FROM pending_actions WHERE request_id = ?").bind(b.id).run();
           await env.DB.prepare("DELETE FROM requests WHERE id = ?").bind(b.id).run();
+          await logAction(env, actor, "delete", b.id);
           return json({ ok: true });
         }
         if (b.action === "merge") {
@@ -307,6 +356,7 @@ export default {
           await env.DB.prepare("INSERT OR IGNORE INTO confirmations (request_id, phone) VALUES (?,?)")
             .bind(b.target_id, merged?.contact ?? `merged:${b.id}`)
             .run();
+          await logAction(env, actor, "merge", b.id, { target_id: b.target_id });
           return json({ ok: true });
         }
         // Moderator corrections (fix municipality / need type) ride along with any action.
@@ -330,12 +380,14 @@ export default {
             await env.DB.prepare(`UPDATE requests SET ${sets.join(",")}, updated_at=datetime('now') WHERE id = ?`)
               .bind(...binds, b.id)
               .run();
+          await logAction(env, actor, "update", b.id, b);
           return json({ ok: true });
         }
         if (!actions[b.action]) return json({ error: "unknown action" }, 400);
         await env.DB.prepare("UPDATE requests SET status=?, updated_at=datetime('now') WHERE id = ?")
           .bind(actions[b.action], b.id)
           .run();
+        await logAction(env, actor, b.action, b.id, muni ? { muni_code: muni.code } : undefined);
         return json({ ok: true });
       }
       return json({ error: "not found" }, 404);
@@ -343,7 +395,8 @@ export default {
 
     // ── Accredited responders: precise data ──
     if (request.method === "GET" && path === "/api/responder/requests") {
-      if (!env.RESPONDER_TOKEN || bearer(request) !== env.RESPONDER_TOKEN) return json({ error: "unauthorized" }, 401);
+      const actor = await resolveActor(env, bearer(request));
+      if (!actor) return json({ error: "unauthorized" }, 401);
       const rows = await env.DB.prepare(
         `SELECT r.*, IFNULL(c.cnt,0) AS confirmations FROM requests r
          LEFT JOIN (SELECT request_id, COUNT(*) cnt FROM confirmations GROUP BY request_id) c ON c.request_id = r.id
@@ -354,7 +407,8 @@ export default {
 
     // Responders may move verified→attending→resolved, never verify/reject (human gate stays with moderators).
     if (request.method === "POST" && path === "/api/responder/action") {
-      if (!env.RESPONDER_TOKEN || bearer(request) !== env.RESPONDER_TOKEN) return json({ error: "unauthorized" }, 401);
+      const actor = await resolveActor(env, bearer(request));
+      if (!actor) return json({ error: "unauthorized" }, 401);
       const b = (await request.json().catch(() => null)) as any;
       const actions: Record<string, string> = { attend: "attending", resolve: "resolved" };
       if (!b?.id || !actions[b.action]) return json({ error: "id and action (attend|resolve) required" }, 400);
@@ -363,6 +417,7 @@ export default {
       )
         .bind(actions[b.action], b.id)
         .run();
+      await logAction(env, actor, b.action, b.id);
       return json({ ok: true });
     }
 

@@ -15,6 +15,7 @@ export default defineWorkersConfig(async () => {
               // Test secrets — CI runs with no real secrets so fork PRs pass.
               KAPSO_WEBHOOK_SECRET: "test-kapso-secret",
               SMSGATE_SIGNING_KEY: "test-smsgate-key",
+              ADMIN_TOKEN: "test-admin-token",
               MOD_TOKEN: "test-mod-token",
               RESPONDER_TOKEN: "test-responder-token",
               ORG_TOKENS: "CruzRoja:test-org-token",

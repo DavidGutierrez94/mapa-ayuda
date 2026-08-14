@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Administración — Mapa de Ayuda</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link href="/coss.css" rel="stylesheet" />
+<style>
+  table { width: 100%; border-collapse: collapse; font-size: .8125rem; margin-top: .5rem; }
+  th, td { text-align: left; padding: .45rem .6rem; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted-foreground); font-weight: 500; }
+  .row { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+  .token-box { background: var(--muted); border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px); padding: .6rem .8rem; margin-top: .5rem; font-family: ui-monospace, monospace; font-size: .8125rem; word-break: break-all; }
+  .off { color: var(--muted-foreground); text-decoration: line-through; }
+</style>
+</head>
+<body class="page">
+<h1>Administración <span class="badge">usuarios y auditoría</span></h1>
+<p style="display:flex;gap:.5rem;align-items:center"><input class="input input-inline" id="token" placeholder="Token de administrador" type="password" style="width:16rem" /> <button class="btn btn-primary" style="margin:0" onclick="save()">Entrar</button></p>
+
+<h2 style="margin-top:1.5rem">Usuarios</h2>
+<div class="row" style="margin-top:.5rem">
+  <input class="input input-inline" id="u_name" placeholder="Nombre (persona u organización)" style="width:16rem" />
+  <select class="input input-inline" id="u_role">
+    <option value="mod">Moderador</option>
+    <option value="responder">Organización (responder)</option>
+    <option value="admin">Administrador</option>
+  </select>
+  <button class="btn btn-primary" style="margin:0" onclick="createUser()">Crear usuario</button>
+</div>
+<div id="newtoken"></div>
+<div id="users"></div>
+
+<h2 style="margin-top:1.75rem">Registro de actividad</h2>
+<div class="row" style="margin-top:.5rem">
+  <input class="input input-inline" id="l_actor" placeholder="Filtrar por actor" style="width:12rem" />
+  <input class="input input-inline" id="l_req" placeholder="# caso" style="width:7rem" />
+  <button class="btn" style="margin:0" onclick="loadLog()">Filtrar</button>
+</div>
+<div id="log"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+function save() { localStorage.adminToken = $("#token").value; loadAll(); }
+async function api(path, opts = {}) {
+  const res = await fetch(path, { ...opts, headers: { "content-type": "application/json", authorization: "Bearer " + (localStorage.adminToken ?? ""), ...opts.headers } });
+  if (res.status === 401 || res.status === 403) { $("#users").innerHTML = "<p>Token inválido o sin permisos de administrador.</p>"; throw new Error("auth"); }
+  return res.json();
+}
+async function createUser() {
+  const name = $("#u_name").value.trim();
+  if (!name) return;
+  const r = await api("/api/admin/users", { method: "POST", body: JSON.stringify({ name, role: $("#u_role").value }) });
+  $("#u_name").value = "";
+  $("#newtoken").innerHTML = `<div class="token-box"><strong>Token de ${esc(name)}</strong> (cópielo ahora, no se volverá a mostrar):<br>${esc(r.token)}</div>`;
+  loadUsers();
+}
+async function revoke(id, name) {
+  if (!confirm(`¿Revocar el acceso de ${name}?`)) return;
+  await api("/api/admin/users/revoke", { method: "POST", body: JSON.stringify({ id }) });
+  loadUsers();
+}
+const ROLES = { admin: "Administrador", mod: "Moderador", responder: "Organización" };
+async function loadUsers() {
+  const rows = await api("/api/admin/users");
+  $("#users").innerHTML = rows.length === 0 ? "<p class='meta'>Sin usuarios aún. El token de administrador inicial sigue activo.</p>" : `
+    <table><tr><th>#</th><th>Nombre</th><th>Rol</th><th>Creado por</th><th>Fecha</th><th></th></tr>
+    ${rows.map((u) => `<tr class="${u.active ? "" : "off"}">
+      <td>${u.id}</td><td>${esc(u.name)}</td><td>${ROLES[u.role] ?? esc(u.role)}</td>
+      <td>${esc(u.created_by)}</td><td>${esc(u.created_at)}</td>
+      <td>${u.active ? `<button class="btn btn-destructive" style="margin:0;padding:.25rem .6rem" onclick="revoke(${u.id},'${esc(u.name)}')">Revocar</button>` : "revocado"}</td>
+    </tr>`).join("")}</table>`;
+}
+async function loadLog() {
+  const qs = new URLSearchParams();
+  if ($("#l_actor").value.trim()) qs.set("actor", $("#l_actor").value.trim());
+  if ($("#l_req").value.trim()) qs.set("request_id", $("#l_req").value.trim());
+  const rows = await api("/api/admin/log?" + qs);
+  $("#log").innerHTML = rows.length === 0 ? "<p class='meta'>Sin actividad registrada.</p>" : `
+    <table><tr><th>Fecha</th><th>Actor</th><th>Rol</th><th>Acción</th><th>Caso</th><th>Detalle</th></tr>
+    ${rows.map((l) => `<tr>
+      <td>${esc(l.created_at)}</td><td>${esc(l.actor)}</td><td>${esc(l.role)}</td><td>${esc(l.action)}</td>
+      <td>${l.request_id ? "#" + l.request_id : ""}</td><td class="meta">${esc(l.detail ?? "")}</td>
+    </tr>`).join("")}</table>`;
+}
+function loadAll() { if (localStorage.adminToken) { loadUsers(); loadLog(); } }
+loadAll();
+</script>
+</body>
+</html>

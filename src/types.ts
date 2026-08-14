@@ -12,6 +12,7 @@ export interface Env {
   SMSGATE_PASSWORD?: string;
   TURNSTILE_SECRET?: string;
   TURNSTILE_SITEKEY?: string;
+  ADMIN_TOKEN?: string;
   MOD_TOKEN?: string;
   RESPONDER_TOKEN?: string;
   /** "OrgName:token,OtherOrg:token" */
