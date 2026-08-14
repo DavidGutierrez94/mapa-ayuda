@@ -33,7 +33,7 @@ async function load() {
   if (!localStorage.modToken) return;
   const rows = await api("/api/mod/queue");
   $("#list").innerHTML = rows.length === 0 ? "<p>✔ Cola vacía.</p>" : rows.map(r => `
-    <div class="card u${r.urgency}">
+    <div class="card">
       <strong>#${r.id} · ${r.need_type} · urgencia ${r.urgency}</strong>
       <span class="meta"> · ${r.channel}${r.source_org ? " (" + r.source_org + ")" : ""} · ${r.created_at}</span><br>
       ${r.description ?? ""}<br>
