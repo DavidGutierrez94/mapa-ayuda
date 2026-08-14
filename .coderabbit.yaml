@@ -1,0 +1,39 @@
+# CodeRabbit configuration — https://docs.coderabbit.ai/reference/configuration
+language: "en-US"
+tone_instructions: >-
+  This runs in production during a real disaster. Be direct and concise; prioritize
+  correctness and safety findings over style nits.
+reviews:
+  profile: "chill"
+  high_level_summary: true
+  request_changes_workflow: false
+  auto_review:
+    enabled: true
+    drafts: false
+  path_instructions:
+    - path: "src/**"
+      instructions: >-
+        Guard the two load-bearing invariants: (1) the human gate — nothing may become
+        publicly visible without moderator verification; flag any code path that lets a
+        request reach the public feed without status 'verified'/'attending'/'resolved'
+        set by a moderator or responder action. (2) The PII boundary — contact, precise
+        location (location_detail, precise_lat/lon), ip_city, leader identity and cédula
+        data must never be returned by public endpoints (/api/feed, /api/leader-check,
+        /api/municipios, /api/config). Also flag: new runtime dependencies (repo rule:
+        none without discussion), webhook handlers that skip signature verification,
+        and SQL built by string concatenation from request input.
+    - path: "public/**"
+      instructions: >-
+        All text shown to affected people must be in Spanish. User-submitted values
+        rendered into HTML must go through the esc() helper. Pages must stay static,
+        framework-free and zero-build; styling via coss.css tokens.
+    - path: "tests/**"
+      instructions: >-
+        Tests must stay secrets-free (mocked LLM/GitHub/providers) so fork PRs pass
+        with zero repository secrets. Every non-trivial behavior change ships with a test.
+    - path: "migrations/**"
+      instructions: >-
+        Migrations must be additive and preserve existing data; flag anything that
+        drops or rewrites rows without an explicit copy step.
+chat:
+  auto_reply: true
