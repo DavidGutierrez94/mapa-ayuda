@@ -47,7 +47,7 @@
   <ol>
     <li><strong>Tome el caso más urgente primero.</strong> La pestaña Pendientes ordena por urgencia: rojo (vida en riesgo) antes que ámbar y azul.</li>
     <li><strong>Lea la descripción completa.</strong> Una solicitud válida dice qué se necesita, dónde y para cuántas familias. Si es spam, publicidad o una prueba, use Rechazar (o Eliminar, desde la pestaña Rechazadas, si es basura evidente).</li>
-    <li><strong>Confirme el municipio.</strong> Si la tarjeta dice "sin municipio", escriba el código DANE en el campo de la tarjeta y quedará corregido al verificar. Ejemplos: Quibdó 27001, Istmina 27361, Condoto 27205, Tadó 27787.</li>
+    <li><strong>Confirme el municipio.</strong> Si la tarjeta dice "sin municipio", escriba el nombre en el campo de la tarjeta y elíjalo de la lista (también acepta el código DANE); quedará corregido al pulsar Verificar.</li>
     <li><strong>Corrija la clasificación si hace falta.</strong> La IA propone tipo de necesidad y urgencia, pero usted tiene la última palabra: use Editar para ajustar necesidad, urgencia, hogares, descripción o contacto.</li>
     <li><strong>Busque duplicados.</strong> Use el buscador con el nombre del municipio. Si ya existe una solicitud verificada de la misma necesidad en el mismo lugar, escriba el número de ese caso en "Fusionar con #" (dentro de Editar): este reporte se suma como confirmación en vez de duplicar el mapa.</li>
     <li><strong>Pulse Verificar.</strong> Solo entonces la solicitud aparece en el mapa público y en la vista de organizaciones. Nada es público sin este paso.</li>
@@ -55,7 +55,7 @@
   <div class="example">
     <strong>Ejemplo.</strong> Llega: <em>"nesecitamos agua urgente en kibdo barrio la esperanza somos como 15 familias tel 3001234567"</em><br />
     La IA la clasifica como <strong>agua, urgencia 2</strong>, pero no reconoce "kibdo" y queda <strong>sin municipio</strong>.
-    El moderador: (1) escribe 27001 en el campo DANE, (2) con Editar sube la urgencia a 1 si el contexto lo amerita y fija hogares en 15,
+    El moderador: (1) escribe "Quibdó" en el campo de municipio y lo elige de la lista, (2) con Editar sube la urgencia a 1 si el contexto lo amerita y fija hogares en 15,
     (3) busca "Quibdó" por si ya hay un caso de agua verificado; si lo hay, fusiona; si no, (4) pulsa Verificar.
   </div>
   <p style="margin:.5rem 0 0"><strong>Para trabajar en equipo:</strong> la lista se actualiza sola cada 30 segundos y un caso verificado o rechazado desaparece de Pendientes, así que dos moderadores pueden trabajar a la vez sin pisarse: cada quien toma casos distintos, idealmente repartidos por municipio o por urgencia.</p>
@@ -75,7 +75,7 @@
     <select class="input" id="c_urgency">
       <option value="1">Urgencia 1: vida en riesgo</option><option value="2" selected>Urgencia 2: horas</option><option value="3">Urgencia 3: días</option>
     </select>
-    <input class="input" id="c_muni" placeholder="Municipio (nombre o código DANE)" />
+    <input class="input" id="c_muni" list="munis" placeholder="Municipio (escriba para buscar)" />
     <input class="input" id="c_households" type="number" min="1" value="1" title="Hogares" />
   </div>
   <div class="row" style="margin-top:.5rem">
@@ -102,9 +102,26 @@
 </div>
 <div id="list"></div>
 
+<datalist id="munis"></datalist>
 <script>
 const $ = (s) => document.querySelector(s);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+// Searchable municipality picker: type a name, we resolve it to its DANE code.
+let MUNIS = [];
+const mnorm = (s) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+fetch("/api/municipios").then((r) => r.json()).then((list) => {
+  MUNIS = list;
+  $("#munis").innerHTML = list.map((m) => `<option value="${esc(m.name)} (${esc(m.dept)})"></option>`).join("");
+});
+function resolveMuni(v) {
+  v = (v ?? "").trim();
+  if (!v) return "";
+  if (/^\d{5}$/.test(v)) return v;
+  const n = mnorm(v);
+  const hit = MUNIS.find((m) => mnorm(`${m.name} (${m.dept})`) === n) ?? MUNIS.find((m) => mnorm(m.name) === n);
+  return hit?.code ?? "";
+}
 const TABS = [["pending", "Pendientes"], ["verified", "Verificadas"], ["attending", "En atención"], ["resolved", "Resueltas"], ["rejected", "Rechazadas"]];
 let status = "pending";
 
@@ -121,7 +138,7 @@ async function act(id, action, extra = {}) {
   load();
 }
 function verifyWithMuni(id) {
-  const muni_code = $("#m" + id)?.value.trim();
+  const muni_code = resolveMuni($("#m" + id)?.value);
   act(id, "verify", muni_code ? { muni_code } : {});
 }
 async function saveEdit(id) {
@@ -132,18 +149,19 @@ async function saveEdit(id) {
     need_type: g("need_type"), urgency: +g("urgency"),
     description: g("description"), households: +g("households") || 1,
     contact: g("contact"), location_detail: g("location_detail"),
-    ...(g("muni_code").trim() && { muni_code: g("muni_code").trim() }),
+    ...(resolveMuni(g("muni_code")) && { muni_code: resolveMuni(g("muni_code")) }),
   });
 }
 async function createReq() {
   const need_types = [...document.querySelectorAll("#c_needs input:checked")].map((i) => i.value);
   if (need_types.length === 0) { $("#c_err").textContent = "Marque al menos una necesidad."; return; }
   const muni = $("#c_muni").value.trim();
+  const code = resolveMuni(muni);
   const body = {
     need_types, urgency: +$("#c_urgency").value,
     description: $("#c_desc").value, households: +$("#c_households").value || 1,
     contact: $("#c_contact").value, location_detail: $("#c_detail").value,
-    ...(/^\d{5}$/.test(muni) ? { muni_code: muni } : { muni_name: muni }),
+    ...(code ? { muni_code: code } : { muni_name: muni }),
   };
   const res = await api("/api/mod/create", { method: "POST", body: JSON.stringify(body) });
   if (res.error) { $("#c_err").textContent = res.error; return; }
@@ -153,7 +171,7 @@ async function createReq() {
 }
 
 const ACTIONS = {
-  pending: (r) => `<input class="input muni" id="m${r.id}" placeholder="código DANE si falta" value="${esc(r.muni_code)}" />
+  pending: (r) => `<input class="input muni" id="m${r.id}" list="munis" placeholder="Municipio (escriba para buscar)" value="${esc(r.muni_code)}" />
     <button class="btn btn-success" onclick="verifyWithMuni(${r.id})">Verificar</button>
     <button class="btn btn-destructive" onclick="act(${r.id},'reject')">Rechazar</button>`,
   verified: (r) => `<button class="btn btn-warning" onclick="act(${r.id},'attend')">Atender</button>
@@ -168,7 +186,8 @@ const ACTIONS = {
 const card = (r) => `
   <div class="card">
     <strong>#${r.id} · ${esc(r.need_type)} · urgencia ${r.urgency}</strong>
-    <span class="meta"> · ${esc(r.channel)}${r.source_org ? " (" + esc(r.source_org) + ")" : ""} · ${esc(r.created_at)}</span><br>
+    <span class="meta"> · ${esc(r.channel)}${r.source_org ? " (" + esc(r.source_org) + ")" : ""} · ${esc(r.created_at)}</span>
+    ${r.leader_name ? `<span class="badge badge-success">✓ Líder: ${esc(r.leader_name)} · CC …${esc(r.leader_cc)}</span>` : ""}<br>
     ${esc(r.description)}<br>
     <span class="meta">📍 ${esc(r.muni_name) || "⚠ sin municipio"} ${r.location_raw ? "· dijo: “" + esc(r.location_raw) + "”" : ""} ${r.location_detail ? "· detalle: " + esc(r.location_detail) : ""}
     · 👥 ${r.households} hogares · +${r.confirmations} confirmaciones · ☎ ${esc(r.contact) || "sin contacto"}</span><br>
@@ -183,7 +202,7 @@ const card = (r) => `
           ${[1, 2, 3].map((u) => `<option value="${u}" ${u === r.urgency ? "selected" : ""}>Urgencia ${u}</option>`).join("")}
         </select>
         <input class="input" name="households" type="number" min="1" value="${r.households}" title="Hogares" />
-        <input class="input" name="muni_code" placeholder="código DANE" value="${esc(r.muni_code)}" />
+        <input class="input" name="muni_code" list="munis" placeholder="Municipio (escriba para buscar)" value="${esc(r.muni_code)}" />
       </div>
       <div class="row" style="margin-top:.5rem">
         <input class="input" name="contact" placeholder="Teléfono (privado)" value="${esc(r.contact)}" />
@@ -208,7 +227,7 @@ const DROP_ACTION = { verified: "verify", rejected: "reject", attending: "attend
 const UCOLOR = { 1: "var(--destructive)", 2: "var(--warning)", 3: "var(--info)" };
 const kcard = (r) => `
   <div class="kcard" draggable="true" ondragstart="dragging=true;event.dataTransfer.setData('text/plain','${r.id}')" ondragend="dragging=false" title="${esc(r.description)}">
-    <strong>#${r.id}</strong> · ${esc(r.need_type)} <span style="color:${UCOLOR[r.urgency]}">●</span><br>
+    <strong>#${r.id}</strong> · ${esc(r.need_type)} <span style="color:${UCOLOR[r.urgency]}">●</span>${r.leader_name ? ` <span class="badge badge-success" style="padding:.1rem .4rem">✓ líder</span>` : ""}<br>
     <span class="meta">📍 ${esc(r.muni_name) || "sin municipio"} · 👥 ${r.households} · +${r.confirmations}</span><br>
     <span class="meta">${esc((r.description ?? "").slice(0, 70))}${(r.description ?? "").length > 70 ? "…" : ""}</span>
   </div>`;

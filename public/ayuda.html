@@ -18,6 +18,14 @@
   .check:has(:checked) { border-color: var(--ring); background: var(--muted); }
   .check input { accent-color: var(--primary); margin: 0; }
 </style>
+<div id="leaderBox" hidden style="border:1px solid #bbf7d0;background:#f0fdf4;border-radius:var(--radius);padding:.75rem 1rem;margin-bottom:.75rem">
+  <strong>✓ Enlace de líder comunitario</strong>
+  <p class="hint" id="leaderName" style="margin-top:.25rem"></p>
+  <label class="label" style="margin-top:.5rem">Su cédula (para confirmar identidad)
+    <input class="input" id="cedula" inputmode="numeric" placeholder="Solo números" />
+    <p class="hint">Se usa únicamente para verificar que usted es el líder registrado. No se almacena ni se publica.</p>
+  </label>
+</div>
 <form id="f">
   <span class="label">¿Qué se necesita? <span class="hint" style="display:inline">(marca todas las que apliquen)</span></span>
   <div class="checks">
@@ -36,7 +44,8 @@
     </select>
   </label>
   <label class="label">Municipio
-    <input class="input" name="muni_name" required placeholder="Ej: Quibdó, San José del Palmar" />
+    <input class="input" name="muni_name" list="munis" required placeholder="Escribe para buscar tu municipio" />
+    <datalist id="munis"></datalist>
   </label>
   <label class="label">Vereda / barrio / dirección
     <input class="input" name="detail" placeholder="Solo lo ven los organismos de ayuda" />
@@ -58,6 +67,18 @@
 </form>
 <div class="alert-success" id="ok" hidden></div>
 <script>
+const leaderToken = new URLSearchParams(location.search).get("lider");
+if (leaderToken) {
+  fetch("/api/leader-check?token=" + encodeURIComponent(leaderToken)).then(r => r.json()).then(d => {
+    if (d.ok) {
+      document.getElementById("leaderBox").hidden = false;
+      document.getElementById("leaderName").textContent = "Hola " + d.name + ". Sus reportes llegarán marcados como reporte de líder verificado.";
+    }
+  });
+}
+fetch("/api/municipios").then(r => r.json()).then(list => {
+  document.getElementById("munis").innerHTML = list.map(m => `<option value="${m.name} (${m.dept})"></option>`).join("");
+});
 let sitekey = null;
 fetch("/api/config").then(r => r.json()).then(c => {
   sitekey = c.turnstile_sitekey;
@@ -74,6 +95,11 @@ document.getElementById("f").onsubmit = async (e) => {
     return;
   }
   body.urgency = +body.urgency; body.households = +body.households;
+  if (leaderToken && !document.getElementById("leaderBox").hidden) {
+    body.leader_token = leaderToken;
+    body.cedula = document.getElementById("cedula").value.trim();
+    if (!body.cedula) { document.getElementById("err").textContent = "Escribe tu cédula para confirmar identidad."; return; }
+  }
   if (sitekey) body.turnstile_token = e.target.querySelector('[name="cf-turnstile-response"]')?.value;
   const res = await fetch("/api/web-intake", {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),

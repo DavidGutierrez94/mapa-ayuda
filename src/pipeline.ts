@@ -23,14 +23,15 @@ export interface NewRequest {
   contact: string | null;
   channel: string;
   source_org?: string | null;
+  leader_id?: number | null;
 }
 
 export async function createRequest(env: Env, r: NewRequest): Promise<number> {
   const res = await env.DB.prepare(
     `INSERT INTO requests
      (need_type, urgency, description, muni_code, muni_name, dept, lat, lon,
-      location_raw, location_detail, households, contact, channel, source_org)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      location_raw, location_detail, households, contact, channel, source_org, leader_id)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   )
     .bind(
       r.need_type,
@@ -47,6 +48,7 @@ export async function createRequest(env: Env, r: NewRequest): Promise<number> {
       r.contact,
       r.channel,
       r.source_org ?? null,
+      r.leader_id ?? null,
     )
     .run();
   return res.meta.last_row_id as number;

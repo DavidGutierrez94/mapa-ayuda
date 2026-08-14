@@ -14,8 +14,15 @@ const seedRequest = () =>
   ).run();
 
 beforeEach(async () => {
-  await env.DB.exec("DELETE FROM mod_log; DELETE FROM users; DELETE FROM confirmations; DELETE FROM requests;");
+  await env.DB.exec("DELETE FROM mod_log; DELETE FROM users; DELETE FROM leaders; DELETE FROM confirmations; DELETE FROM requests;");
 });
+
+const webIntake = (body: object) =>
+  SELF.fetch("https://x/api/web-intake", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
 
 describe("roles + audit log (PRD v2 P1)", () => {
   it("admin creates users; each token gets exactly its role's access", async () => {
@@ -75,5 +82,53 @@ describe("roles + audit log (PRD v2 P1)", () => {
     await call("/api/mod/action", "test-mod-token", { id: req.id, action: "verify" });
     const log = (await (await call("/api/admin/log?actor=legacy", "test-admin-token")).json()) as any[];
     expect(log[0]).toMatchObject({ actor: "legacy-mod", role: "mod", action: "verify" });
+  });
+});
+
+describe("social leaders (PRD v2 P2)", () => {
+  const mkLeader = async (name = "Doña Rosa", cedula = "1077998877") =>
+    (await (
+      await call("/api/admin/leaders", "test-admin-token", { name, cedula, muni_code: "27001" })
+    ).json()) as any;
+
+  it("valid link + cédula stamps the request; badge data visible to mod and responder, never public", async () => {
+    const { link_token } = await mkLeader();
+    const res = await webIntake({
+      need_types: ["agua"], muni_name: "Quibdó", households: 20,
+      leader_token: link_token, cedula: "1077998877", description: "reporte del barrio",
+    });
+    expect(res.status).toBe(201);
+
+    const [req] = (await (await call("/api/mod/requests?status=pending", "test-mod-token")).json()) as any[];
+    expect(req.leader_name).toBe("Doña Rosa");
+    expect(req.leader_cc).toBe("877");
+
+    await call("/api/mod/action", "test-mod-token", { id: req.id, action: "verify" });
+    const resp = (await (await call("/api/responder/requests", "test-responder-token")).json()) as any[];
+    expect(resp[0].leader_name).toBe("Doña Rosa");
+
+    const feedText = await (await SELF.fetch("https://x/api/feed?status=verified")).text();
+    expect(feedText).not.toContain("Rosa");
+    expect(feedText).not.toContain("877");
+  });
+
+  it("wrong cédula or revoked leader → 403 and no request created", async () => {
+    const { id, link_token } = await mkLeader("Don Pedro", "555444333");
+    expect((await webIntake({ need_types: ["agua"], muni_name: "Quibdó", leader_token: link_token, cedula: "999" })).status).toBe(403);
+
+    await call("/api/admin/leaders/revoke", "test-admin-token", { id });
+    expect((await webIntake({ need_types: ["agua"], muni_name: "Quibdó", leader_token: link_token, cedula: "555444333" })).status).toBe(403);
+
+    expect((await (await call("/api/mod/requests?status=pending", "test-mod-token")).json()) as any[]).toHaveLength(0);
+    // plain submission without leader fields still works (hybrid lane)
+    expect((await webIntake({ need_types: ["agua"], muni_name: "Quibdó" })).status).toBe(201);
+  });
+
+  it("raw cédula is never stored, only hash + last3", async () => {
+    await mkLeader("Ana", "1234567890");
+    const row = await env.DB.prepare("SELECT * FROM leaders").first<any>();
+    expect(JSON.stringify(row)).not.toContain("1234567890");
+    expect(row.cedula_last3).toBe("890");
+    expect(row.cedula_hash).toHaveLength(64);
   });
 });

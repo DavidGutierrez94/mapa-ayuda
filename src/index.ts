@@ -1,6 +1,6 @@
 import type { Env, PipelineReply } from "./types";
 import { handleInbound, createRequest, storeRaw } from "./pipeline";
-import { byCode, byName } from "./gazetteer";
+import { byCode, byName, allMunis } from "./gazetteer";
 import { resolveActor, logAction, sha256hex, RANK, type Actor } from "./auth";
 import * as kapso from "./adapters/kapso";
 import * as smsgate from "./adapters/smsgate";
@@ -116,6 +116,17 @@ export default {
       if (!b) return json({ error: "invalid JSON" }, 400);
       if (!(await verifyTurnstile(env, b.turnstile_token, request.headers.get("CF-Connecting-IP"))))
         return json({ error: "verificación anti-spam fallida" }, 403);
+      // Trusted leader lane (hybrid: open intake stays open; a valid leader link + cédula adds a verified badge).
+      let leaderId: number | null = null;
+      if (b.leader_token) {
+        const leader = await env.DB.prepare("SELECT id, cedula_hash FROM leaders WHERE link_token = ? AND active = 1")
+          .bind(String(b.leader_token))
+          .first<any>();
+        const cedula = String(b.cedula ?? "").replace(/\D/g, "");
+        if (!leader || !cedula || (await sha256hex(cedula)) !== leader.cedula_hash)
+          return json({ error: "verificación de líder fallida: revise el enlace y la cédula" }, 403);
+        leaderId = leader.id;
+      }
       // One submission may carry several needs (need_types[]); each becomes its own request
       // so the map keeps aggregating by (municipality, need). Fan-out is server-side because
       // a Turnstile token verifies only once.
@@ -137,9 +148,18 @@ export default {
             households: Number.isInteger(b.households) && b.households > 0 ? b.households : 1,
             contact: b.contact ? String(b.contact).slice(0, 50) : null,
             channel: "web",
+            leader_id: leaderId,
           }),
         );
       return json({ ok: true, id: ids[0], ids }, 201);
+    }
+
+    // Public: validate a leader link before showing the leader section on the form.
+    if (request.method === "GET" && path === "/api/leader-check") {
+      const row = await env.DB.prepare("SELECT name FROM leaders WHERE link_token = ? AND active = 1")
+        .bind(url.searchParams.get("token") ?? "")
+        .first<any>();
+      return json(row ? { ok: true, name: row.name } : { ok: false });
     }
 
     // ── Open intake standard: org push ──
@@ -222,6 +242,11 @@ export default {
       return json({ generated_at: new Date().toISOString(), rows });
     }
 
+    // ── Municipality list for the searchable pickers ──
+    if (request.method === "GET" && path === "/api/municipios") {
+      return json(allMunis(), 200, { "cache-control": "public, max-age=3600" });
+    }
+
     // ── Config for static pages ──
     if (request.method === "GET" && path === "/api/config") {
       return json({ turnstile_sitekey: env.TURNSTILE_SITEKEY ?? null });
@@ -256,6 +281,41 @@ export default {
         await logAction(env, actor, "user_revoke", null, { user_id: b.id });
         return json({ ok: true });
       }
+      if (request.method === "GET" && path === "/api/admin/leaders") {
+        const rows = await env.DB.prepare(
+          "SELECT id, name, phone, muni_code, cedula_last3, link_token, active, created_by, created_at FROM leaders ORDER BY id DESC",
+        ).all();
+        return json(rows.results);
+      }
+      if (request.method === "POST" && path === "/api/admin/leaders") {
+        const b = (await request.json().catch(() => null)) as any;
+        if (!b?.name || !b?.cedula) return json({ error: "name and cedula required" }, 422);
+        const cedula = String(b.cedula).replace(/\D/g, "");
+        if (cedula.length < 5) return json({ error: "cedula inválida" }, 422);
+        const link_token = `lider_${crypto.randomUUID().replace(/-/g, "")}`;
+        const res = await env.DB.prepare(
+          "INSERT INTO leaders (name, phone, muni_code, cedula_hash, cedula_last3, link_token, created_by) VALUES (?,?,?,?,?,?,?)",
+        )
+          .bind(
+            String(b.name).slice(0, 100),
+            b.phone ? String(b.phone).slice(0, 50) : null,
+            byCode(b.muni_code)?.code ?? null,
+            await sha256hex(cedula), // raw cédula is hashed and discarded (Ley 1581 minimization)
+            cedula.slice(-3),
+            link_token,
+            actor.name,
+          )
+          .run();
+        await logAction(env, actor, "leader_create", null, { leader_id: res.meta.last_row_id, name: b.name });
+        return json({ ok: true, id: res.meta.last_row_id, link_token }, 201);
+      }
+      if (request.method === "POST" && path === "/api/admin/leaders/revoke") {
+        const b = (await request.json().catch(() => null)) as any;
+        if (!b?.id) return json({ error: "id required" }, 400);
+        await env.DB.prepare("UPDATE leaders SET active = 0 WHERE id = ?").bind(b.id).run();
+        await logAction(env, actor, "leader_revoke", null, { leader_id: b.id });
+        return json({ ok: true });
+      }
       if (request.method === "GET" && path === "/api/admin/log") {
         const conds: string[] = [];
         const binds: unknown[] = [];
@@ -278,8 +338,9 @@ export default {
       if (RANK[actor.role] < RANK.mod) return json({ error: "forbidden" }, 403);
       if (request.method === "GET" && path === "/api/mod/queue") {
         const rows = await env.DB.prepare(
-          `SELECT r.*, IFNULL(c.cnt,0) AS confirmations FROM requests r
+          `SELECT r.*, IFNULL(c.cnt,0) AS confirmations, l.name AS leader_name, l.cedula_last3 AS leader_cc FROM requests r
            LEFT JOIN (SELECT request_id, COUNT(*) cnt FROM confirmations GROUP BY request_id) c ON c.request_id = r.id
+           LEFT JOIN leaders l ON l.id = r.leader_id
            WHERE r.status = 'pending' ORDER BY r.urgency, r.id DESC LIMIT 200`,
         ).all();
         return json(rows.results);
@@ -299,8 +360,9 @@ export default {
           binds.push(q, like, like, like, like, like);
         }
         const rows = await env.DB.prepare(
-          `SELECT r.*, IFNULL(c.cnt,0) AS confirmations FROM requests r
+          `SELECT r.*, IFNULL(c.cnt,0) AS confirmations, l.name AS leader_name, l.cedula_last3 AS leader_cc FROM requests r
            LEFT JOIN (SELECT request_id, COUNT(*) cnt FROM confirmations GROUP BY request_id) c ON c.request_id = r.id
+           LEFT JOIN leaders l ON l.id = r.leader_id
            WHERE ${conds.join(" AND ")} ORDER BY r.urgency, r.id DESC LIMIT 200`,
         ).bind(...binds).all();
         return json(rows.results);
@@ -398,8 +460,9 @@ export default {
       const actor = await resolveActor(env, bearer(request));
       if (!actor) return json({ error: "unauthorized" }, 401);
       const rows = await env.DB.prepare(
-        `SELECT r.*, IFNULL(c.cnt,0) AS confirmations FROM requests r
+        `SELECT r.*, IFNULL(c.cnt,0) AS confirmations, l.name AS leader_name, l.cedula_last3 AS leader_cc FROM requests r
          LEFT JOIN (SELECT request_id, COUNT(*) cnt FROM confirmations GROUP BY request_id) c ON c.request_id = r.id
+         LEFT JOIN leaders l ON l.id = r.leader_id
          WHERE r.status IN ('verified','attending') ORDER BY r.urgency, r.id DESC`,
       ).all();
       return json(rows.results);

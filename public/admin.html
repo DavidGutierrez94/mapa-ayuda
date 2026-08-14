@@ -33,6 +33,18 @@
 <div id="newtoken"></div>
 <div id="users"></div>
 
+<h2 style="margin-top:1.75rem">Líderes comunitarios</h2>
+<p class="meta" style="margin-top:.25rem">Cada líder recibe un enlace propio para enviar solicitudes verificadas. La cédula se guarda cifrada (hash); solo se muestran los últimos 3 dígitos.</p>
+<div class="row" style="margin-top:.5rem">
+  <input class="input input-inline" id="ld_name" placeholder="Nombre del líder" style="width:14rem" />
+  <input class="input input-inline" id="ld_cedula" placeholder="Cédula" inputmode="numeric" style="width:9rem" />
+  <input class="input input-inline" id="ld_phone" placeholder="Teléfono (opcional)" style="width:10rem" />
+  <input class="input input-inline" id="ld_muni" placeholder="Cód. DANE (opcional)" style="width:10rem" />
+  <button class="btn btn-primary" style="margin:0" onclick="createLeader()">Registrar líder</button>
+</div>
+<div id="newlink"></div>
+<div id="leaders"></div>
+
 <h2 style="margin-top:1.75rem">Registro de actividad</h2>
 <div class="row" style="margin-top:.5rem">
   <input class="input input-inline" id="l_actor" placeholder="Filtrar por actor" style="width:12rem" />
@@ -86,7 +98,32 @@ async function loadLog() {
       <td>${l.request_id ? "#" + l.request_id : ""}</td><td class="meta">${esc(l.detail ?? "")}</td>
     </tr>`).join("")}</table>`;
 }
-function loadAll() { if (localStorage.adminToken) { loadUsers(); loadLog(); } }
+async function createLeader() {
+  const name = $("#ld_name").value.trim(), cedula = $("#ld_cedula").value.trim();
+  if (!name || !cedula) return;
+  const r = await api("/api/admin/leaders", { method: "POST", body: JSON.stringify({ name, cedula, phone: $("#ld_phone").value.trim() || undefined, muni_code: $("#ld_muni").value.trim() || undefined }) });
+  if (r.error) { alert(r.error); return; }
+  $("#ld_name").value = ""; $("#ld_cedula").value = ""; $("#ld_phone").value = ""; $("#ld_muni").value = "";
+  const link = location.origin + "/ayuda?lider=" + r.link_token;
+  $("#newlink").innerHTML = `<div class="token-box"><strong>Enlace de ${esc(name)}</strong> (compártalo solo con esta persona):<br><a href="${esc(link)}">${esc(link)}</a></div>`;
+  loadLeaders();
+}
+async function revokeLeader(id, name) {
+  if (!confirm(`¿Revocar el enlace de ${name}?`)) return;
+  await api("/api/admin/leaders/revoke", { method: "POST", body: JSON.stringify({ id }) });
+  loadLeaders();
+}
+async function loadLeaders() {
+  const rows = await api("/api/admin/leaders");
+  $("#leaders").innerHTML = rows.length === 0 ? "<p class='meta'>Sin líderes registrados.</p>" : `
+    <table><tr><th>#</th><th>Nombre</th><th>Cédula</th><th>Teléfono</th><th>Municipio</th><th>Enlace</th><th></th></tr>
+    ${rows.map((l) => `<tr class="${l.active ? "" : "off"}">
+      <td>${l.id}</td><td>${esc(l.name)}</td><td>CC …${esc(l.cedula_last3)}</td><td>${esc(l.phone)}</td><td>${esc(l.muni_code)}</td>
+      <td><button class="btn" style="margin:0;padding:.25rem .6rem" onclick="navigator.clipboard.writeText(location.origin+'/ayuda?lider=${esc(l.link_token)}');this.textContent='Copiado ✓'">Copiar enlace</button></td>
+      <td>${l.active ? `<button class="btn btn-destructive" style="margin:0;padding:.25rem .6rem" onclick="revokeLeader(${l.id},'${esc(l.name)}')">Revocar</button>` : "revocado"}</td>
+    </tr>`).join("")}</table>`;
+}
+function loadAll() { if (localStorage.adminToken) { loadUsers(); loadLeaders(); loadLog(); } }
 loadAll();
 </script>
 </body>

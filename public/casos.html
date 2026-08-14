@@ -35,7 +35,8 @@ async function act(id, action) {
 const card = (r) => `
   <div class="card u${r.urgency}">
     <strong>#${r.id} · ${esc(r.need_type)} · urgencia ${r.urgency}</strong>
-    <span class="meta"> · ${esc(r.channel)}${r.source_org ? " (" + esc(r.source_org) + ")" : ""} · ${esc(r.created_at)}</span><br>
+    <span class="meta"> · ${esc(r.channel)}${r.source_org ? " (" + esc(r.source_org) + ")" : ""} · ${esc(r.created_at)}</span>
+    ${r.leader_name ? `<span class="badge badge-success">✓ Líder: ${esc(r.leader_name)} · CC …${esc(r.leader_cc)}</span>` : ""}<br>
     ${esc(r.description)}<br>
     <span class="meta">📍 ${esc(r.muni_name) || "sin municipio"}${r.location_detail ? " · " + esc(r.location_detail) : ""}${r.location_raw ? " · dijo: “" + esc(r.location_raw) + "”" : ""}
     · 👥 ${r.households} hogares · +${r.confirmations} confirmaciones</span><br>

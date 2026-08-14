@@ -100,6 +100,7 @@ a.muted { color: var(--muted-foreground); }
   border: 1px solid var(--border);
 }
 .badge-destructive { background: #fef2f2; color: var(--destructive); border-color: #fecaca; }
+.badge-success { background: #f0fdf4; color: #15803d; border-color: #bbf7d0; }
 .alert-success {
   background: #f0fdf4; border: 1px solid #bbf7d0; color: #14532d;
   border-radius: var(--radius); padding: 1rem; margin-top: 1rem;

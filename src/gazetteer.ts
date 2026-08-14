@@ -10,6 +10,10 @@ export interface Muni {
 
 const MUNIS: Muni[] = data.municipios;
 
+/** Full list for the frontend municipality picker. */
+export const allMunis = (): Pick<Muni, "code" | "name" | "dept">[] =>
+  MUNIS.map(({ code, name, dept }) => ({ code, name, dept }));
+
 const norm = (s: string) =>
   s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
 
