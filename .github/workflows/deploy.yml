@@ -21,7 +21,7 @@ jobs:
       - name: Deploy Worker + assets
         # wrangler@4 latest (not the repo's pinned 4.35, held back by vitest-pool-workers):
         # newer wrangler authenticates asset uploads in a way account-owned API tokens accept.
-        run: npx wrangler@4 deploy
+        run: npx --yes wrangler@4.123.0 deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
