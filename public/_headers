@@ -1,0 +1,20 @@
+# Security headers for all static pages (M-3). Served by Cloudflare Workers static assets.
+# One uniform CSP for every page: applying it via /* avoids the multiple-CSP-header
+# intersection that per-path overrides can cause (which would silently break the map).
+#
+# What the CSP allows and why:
+#   script-src 'self'                      → self-hosted maplibre + our per-page external scripts;
+#                                            NO 'unsafe-inline' (all inline scripts and on*=handlers
+#                                            were externalized) and NO external script host (kills the
+#                                            unpkg-CDN vector, H-5)
+#     + https://challenges.cloudflare.com  → Turnstile (only /ayuda uses it; harmless elsewhere)
+#   style/font 'self' + Google Fonts       → the Inter webfont
+#   connect-src OpenStreetMap              → raster map tiles (maplibre fetches them via fetch(), not <img>)
+#   worker-src blob:                       → maplibre spins its workers from blob: URLs
+#   frame-ancestors 'none'                 → clickjacking protection for /mod and /admin
+#   base-uri/object-src 'none'             → no <base> hijack, no plugins
+/*
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  Content-Security-Policy: default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data: https://tile.openstreetmap.org https://*.tile.openstreetmap.org; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; connect-src 'self' https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://challenges.cloudflare.com; worker-src blob:

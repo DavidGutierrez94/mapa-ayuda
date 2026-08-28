@@ -18,7 +18,7 @@
 </head>
 <body class="page">
 <h1>Administración <span class="badge">usuarios y auditoría</span></h1>
-<p style="display:flex;gap:.5rem;align-items:center"><input class="input input-inline" id="token" placeholder="Token de administrador" type="password" style="width:16rem" /> <button class="btn btn-primary" style="margin:0" onclick="save()">Entrar</button></p>
+<p style="display:flex;gap:.5rem;align-items:center"><input class="input input-inline" id="token" placeholder="Token de administrador" type="password" style="width:16rem" /> <button id="enter" class="btn btn-primary" style="margin:0">Entrar</button></p>
 
 <h2 style="margin-top:1.5rem">Usuarios</h2>
 <div class="row" style="margin-top:.5rem">
@@ -28,7 +28,7 @@
     <option value="responder">Organización (responder)</option>
     <option value="admin">Administrador</option>
   </select>
-  <button class="btn btn-primary" style="margin:0" onclick="createUser()">Crear usuario</button>
+  <button id="createUser" class="btn btn-primary" style="margin:0">Crear usuario</button>
 </div>
 <div id="newtoken"></div>
 <div id="users"></div>
@@ -40,7 +40,7 @@
   <input class="input input-inline" id="ld_cedula" placeholder="Cédula" inputmode="numeric" style="width:9rem" />
   <input class="input input-inline" id="ld_phone" placeholder="Teléfono (opcional)" style="width:10rem" />
   <input class="input input-inline" id="ld_muni" placeholder="Cód. DANE (opcional)" style="width:10rem" />
-  <button class="btn btn-primary" style="margin:0" onclick="createLeader()">Registrar líder</button>
+  <button id="createLeader" class="btn btn-primary" style="margin:0">Registrar líder</button>
 </div>
 <div id="newlink"></div>
 <div id="leaders"></div>
@@ -49,100 +49,12 @@
 <div class="row" style="margin-top:.5rem">
   <input class="input input-inline" id="l_actor" placeholder="Filtrar por actor" style="width:12rem" />
   <input class="input input-inline" id="l_req" placeholder="# caso" style="width:7rem" />
-  <button class="btn" style="margin:0" onclick="window.ob && ob.done('bitacora'); loadLog()">Filtrar</button>
+  <button id="filterLog" class="btn" style="margin:0">Filtrar</button>
 </div>
 <div id="log"></div>
 
 <script src="/onboarding.js"></script>
-<script>
-const $ = (s) => document.querySelector(s);
-const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-
-window.ob = onboard({
-  key: "admin",
-  title: "Bienvenida al panel de administración",
-  intro: "Desde aquí controla quién accede a la plataforma y qué hace cada quien. Cuatro pasos; se marcan solos cuando los hace:",
-  steps: [
-    { id: "token", text: "Entre con el token de administrador.", target: "#token" },
-    { id: "usuario", text: "Cree su primer usuario (moderador u organización) y entregue el token: se muestra una sola vez.", target: "#u_name" },
-    { id: "lider", text: "Registre un líder comunitario y compártale su enlace personal.", target: "#ld_name" },
-    { id: "bitacora", text: "Use los filtros de la bitácora: toda acción de todo usuario queda registrada aquí.", target: "#l_actor" },
-  ],
-});
-
-function save() { localStorage.adminToken = $("#token").value; loadAll(); }
-async function api(path, opts = {}) {
-  const res = await fetch(path, { ...opts, headers: { "content-type": "application/json", authorization: "Bearer " + (localStorage.adminToken ?? ""), ...opts.headers } });
-  if (res.status === 401 || res.status === 403) { $("#users").innerHTML = "<p>Token inválido o sin permisos de administrador.</p>"; throw new Error("auth"); }
-  ob.done("token");
-  return res.json();
-}
-async function createUser() {
-  const name = $("#u_name").value.trim();
-  if (!name) return;
-  const r = await api("/api/admin/users", { method: "POST", body: JSON.stringify({ name, role: $("#u_role").value }) });
-  $("#u_name").value = "";
-  $("#newtoken").innerHTML = `<div class="token-box"><strong>Token de ${esc(name)}</strong> (cópielo ahora, no se volverá a mostrar):<br>${esc(r.token)}</div>`;
-  ob.done("usuario");
-  loadUsers();
-}
-async function revoke(id, name) {
-  if (!confirm(`¿Revocar el acceso de ${name}?`)) return;
-  await api("/api/admin/users/revoke", { method: "POST", body: JSON.stringify({ id }) });
-  loadUsers();
-}
-const ROLES = { admin: "Administrador", mod: "Moderador", responder: "Organización" };
-async function loadUsers() {
-  const rows = await api("/api/admin/users");
-  $("#users").innerHTML = rows.length === 0 ? "<p class='meta'>Sin usuarios aún. El token de administrador inicial sigue activo.</p>" : `
-    <table><tr><th>#</th><th>Nombre</th><th>Rol</th><th>Creado por</th><th>Fecha</th><th></th></tr>
-    ${rows.map((u) => `<tr class="${u.active ? "" : "off"}">
-      <td>${u.id}</td><td>${esc(u.name)}</td><td>${ROLES[u.role] ?? esc(u.role)}</td>
-      <td>${esc(u.created_by)}</td><td>${esc(u.created_at)}</td>
-      <td>${u.active ? `<button class="btn btn-destructive" style="margin:0;padding:.25rem .6rem" onclick="revoke(${u.id},'${esc(u.name)}')">Revocar</button>` : "revocado"}</td>
-    </tr>`).join("")}</table>`;
-}
-async function loadLog() {
-  const qs = new URLSearchParams();
-  if ($("#l_actor").value.trim()) qs.set("actor", $("#l_actor").value.trim());
-  if ($("#l_req").value.trim()) qs.set("request_id", $("#l_req").value.trim());
-  const rows = await api("/api/admin/log?" + qs);
-  $("#log").innerHTML = rows.length === 0 ? "<p class='meta'>Sin actividad registrada.</p>" : `
-    <table><tr><th>Fecha</th><th>Actor</th><th>Rol</th><th>Acción</th><th>Caso</th><th>Detalle</th></tr>
-    ${rows.map((l) => `<tr>
-      <td>${esc(l.created_at)}</td><td>${esc(l.actor)}</td><td>${esc(l.role)}</td><td>${esc(l.action)}</td>
-      <td>${l.request_id ? "#" + l.request_id : ""}</td><td class="meta">${esc(l.detail ?? "")}</td>
-    </tr>`).join("")}</table>`;
-}
-async function createLeader() {
-  const name = $("#ld_name").value.trim(), cedula = $("#ld_cedula").value.trim();
-  if (!name || !cedula) return;
-  const r = await api("/api/admin/leaders", { method: "POST", body: JSON.stringify({ name, cedula, phone: $("#ld_phone").value.trim() || undefined, muni_code: $("#ld_muni").value.trim() || undefined }) });
-  if (r.error) { alert(r.error); return; }
-  $("#ld_name").value = ""; $("#ld_cedula").value = ""; $("#ld_phone").value = ""; $("#ld_muni").value = "";
-  const link = location.origin + "/ayuda?lider=" + r.link_token;
-  $("#newlink").innerHTML = `<div class="token-box"><strong>Enlace de ${esc(name)}</strong> (compártalo solo con esta persona):<br><a href="${esc(link)}">${esc(link)}</a></div>`;
-  ob.done("lider");
-  loadLeaders();
-}
-async function revokeLeader(id, name) {
-  if (!confirm(`¿Revocar el enlace de ${name}?`)) return;
-  await api("/api/admin/leaders/revoke", { method: "POST", body: JSON.stringify({ id }) });
-  loadLeaders();
-}
-async function loadLeaders() {
-  const rows = await api("/api/admin/leaders");
-  $("#leaders").innerHTML = rows.length === 0 ? "<p class='meta'>Sin líderes registrados. Registre el primero con el formulario de arriba: recibirá un enlace personal para compartirle y sus reportes llegarán marcados como verificados por identidad.</p>" : `
-    <table><tr><th>#</th><th>Nombre</th><th>Cédula</th><th>Teléfono</th><th>Municipio</th><th>Enlace</th><th></th></tr>
-    ${rows.map((l) => `<tr class="${l.active ? "" : "off"}">
-      <td>${l.id}</td><td>${esc(l.name)}</td><td>CC …${esc(l.cedula_last3)}</td><td>${esc(l.phone)}</td><td>${esc(l.muni_code)}</td>
-      <td><button class="btn" style="margin:0;padding:.25rem .6rem" onclick="navigator.clipboard.writeText(location.origin+'/ayuda?lider=${esc(l.link_token)}');this.textContent='Copiado ✓'">Copiar enlace</button></td>
-      <td>${l.active ? `<button class="btn btn-destructive" style="margin:0;padding:.25rem .6rem" onclick="revokeLeader(${l.id},'${esc(l.name)}')">Revocar</button>` : "revocado"}</td>
-    </tr>`).join("")}</table>`;
-}
-function loadAll() { if (localStorage.adminToken) { loadUsers(); loadLeaders(); loadLog(); } }
-loadAll();
-</script>
+<script src="/admin.js"></script>
 <script src="/feedback.js" defer></script>
 </body>
 </html>

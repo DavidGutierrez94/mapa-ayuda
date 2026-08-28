@@ -17,6 +17,10 @@
       "migrations_dir": "migrations"
     }
   ],
+  "triggers": {
+    // Hourly sweep of stale rate-limit rows (see cleanupRateLimits).
+    "crons": ["0 * * * *"]
+  },
   "vars": {
     // OpenAI-compatible endpoint; any deployer can swap provider/model.
     "LLM_BASE_URL": "https://openrouter.ai/api/v1",
@@ -26,5 +30,7 @@
   }
   // Secrets (wrangler secret put ...): LLM_API_KEY, KAPSO_API_KEY, KAPSO_PHONE_ID,
   // KAPSO_WEBHOOK_SECRET, SMSGATE_SIGNING_KEY, SMSGATE_LOGIN, SMSGATE_PASSWORD,
-  // TURNSTILE_SECRET, TURNSTILE_SITEKEY, MOD_TOKEN, RESPONDER_TOKEN, ORG_TOKENS
+  // TURNSTILE_SECRET, TURNSTILE_SITEKEY, MOD_TOKEN, RESPONDER_TOKEN, ORG_TOKENS,
+  // CEDULA_PEPPER (required for leader cédula HMAC — without it the pepper is empty).
+  // NOTE: TURNSTILE_SECRET is now load-bearing — web intake fails CLOSED without it.
 }

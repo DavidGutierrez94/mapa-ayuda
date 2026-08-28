@@ -4,8 +4,8 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Mapa de Ayuda — Terremoto Colombia 2026</title>
-<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
-<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<link href="/vendor/maplibre-gl.css" rel="stylesheet" />
+<script src="/vendor/maplibre-gl.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
 <link href="/coss.css" rel="stylesheet" />
@@ -45,54 +45,9 @@
 </div>
 <div id="hint" hidden style="padding:.5rem 1rem;background:var(--muted);border-bottom:1px solid var(--border);font-size:.8125rem;display:flex;gap:.75rem;align-items:center;flex-wrap:wrap">
   <span>Cada círculo es un municipio con necesidades <strong>verificadas por personas</strong>; el número indica cuántos reportes hay. Toque un círculo para ver el detalle. ¿Usted o su comunidad necesitan algo? Use el botón rojo <strong>Pedir ayuda</strong>.</span>
-  <button class="btn" style="margin-left:auto;padding:.25rem .7rem" onclick="localStorage.ob_mapa='done';this.parentElement.remove()">Entendido</button>
+  <button id="hint-dismiss" class="btn" style="margin-left:auto;padding:.25rem .7rem">Entendido</button>
 </div>
 <div id="map"></div>
-<script>
-if (localStorage.ob_mapa !== "done") document.getElementById("hint").hidden = false;
-const COLORS = { agua:"#1976d2", alimentos:"#f9a825", medico:"#d32f2f", rescate:"#7b1fa2", techo:"#5d4037", higiene:"#00838f", infancia:"#c2185b", otro:"#616161" };
-const LABELS = { agua:"Agua", alimentos:"Alimentos", medico:"Médica", rescate:"Rescate", techo:"Techo", higiene:"Higiene", infancia:"Niños", otro:"Otras" };
-document.getElementById("legend").innerHTML = Object.entries(LABELS)
-  .map(([k,v]) => `<span style="color:${COLORS[k]}">${v}</span>`).join("");
-
-const map = new maplibregl.Map({
-  container: "map",
-  center: [-76.4, 4.9], zoom: 7,
-  style: { version: 8, sources: { osm: {
-    type: "raster", tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
-    tileSize: 256, attribution: "© OpenStreetMap"
-  }}, layers: [{ id: "osm", type: "raster", source: "osm" }] },
-});
-map.addControl(new maplibregl.NavigationControl());
-let markers = [];
-
-async function load() {
-  const need = document.getElementById("need").value;
-  const status = document.getElementById("resolved").checked ? "verified,attending,resolved" : "verified,attending";
-  const qs = new URLSearchParams({ status });
-  if (need) qs.set("need", need);
-  const { rows } = await (await fetch("/api/feed?" + qs)).json();
-  markers.forEach(m => m.remove());
-  markers = rows.filter(r => r.lat != null).map(r => {
-    const size = Math.min(60, 14 + Math.sqrt(r.reportes) * 8);
-    const el = document.createElement("div");
-    el.style.cssText = `width:${size}px;height:${size}px;border-radius:50%;background:${COLORS[r.need_type]}CC;border:2px solid #fff;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:.75rem;cursor:pointer;` + (r.status === "resolved" ? "opacity:.35;" : "");
-    el.textContent = r.reportes;
-    return new maplibregl.Marker({ element: el })
-      .setLngLat([r.lon, r.lat])
-      .setPopup(new maplibregl.Popup({ offset: 12 }).setHTML(
-        `<strong>${r.muni_name}</strong> (${r.dept})<br>` +
-        `${LABELS[r.need_type]} · ${r.status === "resolved" ? "resuelta" : r.status === "attending" ? "en atención" : "verificada"}<br>` +
-        `${r.reportes} reportes · ${r.households ?? "?"} hogares` +
-        (r.has_critical ? "<br>⚠ incluye casos críticos" : "")
-      ))
-      .addTo(map);
-  });
-}
-document.getElementById("need").onchange = load;
-document.getElementById("resolved").onchange = load;
-load();
-setInterval(load, 60_000);
-</script>
+<script src="/index-map.js"></script>
 </body>
 </html>

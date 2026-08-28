@@ -12,6 +12,10 @@ export interface Env {
   SMSGATE_PASSWORD?: string;
   TURNSTILE_SECRET?: string;
   TURNSTILE_SITEKEY?: string;
+  /** Dev/local escape hatch: "1" lets web intake through when TURNSTILE_SECRET is unset. Never set in prod. */
+  ALLOW_OPEN_INTAKE?: string;
+  /** Server-side pepper for cédula HMAC (H-3). Set as a wrangler secret in prod. */
+  CEDULA_PEPPER?: string;
   ADMIN_TOKEN?: string;
   MOD_TOKEN?: string;
   RESPONDER_TOKEN?: string;
